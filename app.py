@@ -3,14 +3,12 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Swing Triple Bullish 44-200", layout="wide")
+st.set_page_config(page_title="TradingView Sync Scanner", layout="wide")
 
-# --- COMPLETE TICKER LIST ---
-NIFTY_200 = [
-    'ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS'
-]
+# --- TICKER LIST ---
+NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENT.NS', 'ADANIPORTS.NS', 'ASIANPAINT.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CIPLA.NS', 'COALINDIA.NS', 'DLF.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'GAIL.NS', 'GRASIM.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'INDUSINDBK.NS', 'INFY.NS', 'ITC.NS', 'JSWSTEEL.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'M&M.NS', 'MARUTI.NS', 'NESTLEIND.NS', 'NTPC.NS', 'ONGC.NS', 'POWERGRID.NS', 'RELIANCE.NS', 'SBILIFE.NS', 'SBIN.NS', 'SUNPHARMA.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'ULTRACEMCO.NS', 'WIPRO.NS']
 
-st.title("🏹 Swing Triple Bullish (44-200 SMA)")
+st.title("🏹 TradingView Replica: 44-200 Swing")
 target_date = st.date_input("Select Date", datetime.now() - timedelta(days=1))
 
 def scan_strategy(selected_date):
@@ -18,83 +16,84 @@ def scan_strategy(selected_date):
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    # Range to check success later
-    start_fetch = selected_date - timedelta(days=400)
-    end_fetch = datetime.now()
+    # Extra data for SMA calculation
+    start_fetch = selected_date - timedelta(days=500)
+    end_fetch = selected_date + timedelta(days=30) # Future data to check SL/Target
     
     success_count = 0
     total_trades = 0
 
     for i, ticker in enumerate(NIFTY_200):
         try:
-            status_text.text(f"Scanning {ticker}...")
-            df = yf.download(ticker, start=start_fetch, end=end_fetch, progress=False)
+            status_text.text(f"Syncing {ticker}...")
+            # Auto_adjust=True makes it match TradingView charts
+            df = yf.download(ticker, start=start_fetch, end=end_fetch, auto_adjust=True, progress=False)
             
-            if len(df) < 200 or selected_date not in df.index: continue
+            if len(df) < 200: continue
             
-            # Indicators
-            df['SMA44'] = df['Close'].rolling(window=44).mean()
-            df['SMA200'] = df['Close'].rolling(window=200).mean()
+            # Indicators (Exact SMA)
+            df['s44'] = df['Close'].rolling(window=44).mean()
+            df['s200'] = df['Close'].rolling(window=200).mean()
             
-            idx = df.index.get_loc(selected_date)
-            row = df.iloc[idx]
-            prev_row_2 = df.iloc[idx-2] # Pine Script s44[2] logic
+            # Get the exact row for selected_date
+            if pd.Timestamp(selected_date) not in df.index:
+                # If holiday, get the nearest previous trading day
+                target_idx = df.index[df.index <= pd.Timestamp(selected_date)][-1]
+            else:
+                target_idx = pd.Timestamp(selected_date)
+
+            idx_pos = df.index.get_loc(target_idx)
+            row = df.iloc[idx_pos]
+            prev_row_2 = df.iloc[idx_pos - 2] # TradingView [2]
+
+            # --- TRADINGVIEW LOGIC REPLICA ---
+            # 1. Rising Trend (SMA 44 > 200 AND both moving up)
+            is_trending = row['s44'] > row['s200'] and row['s44'] > prev_row_2['s44'] and row['s200'] > prev_row_2['s200']
             
-            # Logic Variables
-            price = float(row['Close'])
-            open_p = float(row['Open'])
-            low_p = float(row['Low'])
-            high_p = float(row['High'])
-            s44 = float(row['SMA44'])
-            s200 = float(row['SMA200'])
+            # 2. Strong Candle (Close > Midpoint)
+            midpoint = (row['High'] + row['Low']) / 2
+            is_strong = row['Close'] > row['Open'] and row['Close'] > midpoint
             
-            # --- THE TRADINGVIEW LOGIC ---
-            # 1. Strict Trend (Rising SMA)
-            is_trending = s44 > s200 and s44 > float(prev_row_2['SMA44']) and s200 > float(prev_row_2['SMA200'])
-            # 2. Strong Close (Bullish body)
-            is_strong = price > open_p and price > ((high_p + low_p) / 2)
-            # 3. The Buy Trigger (Support on 44)
-            buy = is_trending and is_strong and low_p <= s44 and price > s44
+            # 3. Trigger: Low touches/below 44 SMA, but Close is above
+            buy = is_trending and is_strong and row['Low'] <= row['s44'] and row['Close'] > row['s44']
 
             if buy:
-                risk = price - low_p
-                target1 = price + risk
+                entry = float(row['Close'])
+                sl = float(row['Low'])
+                risk = entry - sl
+                t1 = entry + risk
                 
-                # Check Outcome (Future Data)
-                future_df = df.iloc[idx+1:]
+                # Check Future Outcome
+                future_data = df.iloc[idx_pos + 1:]
                 outcome = "Running..."
-                for _, f_row in future_df.iterrows():
-                    if f_row['High'] >= target1:
-                        outcome = "✅ SUCCESS (1:1)"
+                for _, f_row in future_data.iterrows():
+                    if f_row['High'] >= t1:
+                        outcome = "✅ TARGET 1:1 HIT"
                         success_count += 1
                         break
-                    if f_row['Low'] <= low_p:
+                    if f_row['Low'] <= sl:
                         outcome = "❌ SL HIT"
                         break
                 
                 total_trades += 1
                 found_stocks.append({
                     "Stock": ticker.replace(".NS", ""),
-                    "Entry": round(price, 2),
-                    "Stop Loss": round(low_p, 2),
-                    "Target 1:1": round(target1, 2),
-                    "Target 1:2": round(price + (risk * 2), 2),
+                    "Entry": round(entry, 2),
+                    "SL": round(sl, 2),
+                    "T1 (1:1)": round(t1, 2),
                     "Result": outcome
                 })
-        except: continue
+        except Exception as e: continue
         progress_bar.progress((i + 1) / len(NIFTY_200))
     
     status_text.empty()
     return pd.DataFrame(found_stocks), success_count, total_trades
 
-if st.button('🔍 Run Triple Bullish Scan'):
-    results, s_count, t_count = scan_strategy(pd.Timestamp(target_date))
-    
+if st.button('🚀 Start Sync Scan'):
+    results, s_count, t_count = scan_strategy(target_date)
     if not results.empty:
-        accuracy = (s_count / t_count) * 100 if t_count > 0 else 0
-        c1, c2 = st.columns(2)
-        c1.metric("Signals Found", t_count)
-        c2.metric("Win Rate", f"{round(accuracy, 1)}%")
+        acc = (s_count/t_count)*100 if t_count > 0 else 0
+        st.metric("Strategy Win Rate", f"{round(acc, 1)}%")
         st.table(results)
     else:
-        st.warning("No Triple Bullish setup on this date.")
+        st.warning("TradingView logic ke hisaab se koi call nahi mila.")
