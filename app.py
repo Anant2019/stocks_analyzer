@@ -3,22 +3,23 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Nifty 200 Final Backtester", layout="wide")
+st.set_page_config(page_title="Nifty 200 Final Backtest Dashboard", layout="wide")
 
 # --- NIFTY 200 LIST ---
 NIFTY_200 = [
     'ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS'
 ]
 
-st.title("🏹 Strategy Backtester (With Corrected Dot Logic)")
-target_date = st.date_input("Kounsi date ka results dekhna hai?", datetime.now() - timedelta(days=15))
+st.title("🏹 Nifty 200 Backtest Dashboard")
+target_date = st.date_input("Kounsi date ka success rate dekhna hai?", datetime.now() - timedelta(days=15))
 
 def get_accurate_journey(ticker, entry, sl, t1, t2, signal_dt):
     try:
+        # Download strictly from signal date to today
         df = yf.download(ticker, start=signal_dt, auto_adjust=True, progress=False)
         if len(df) <= 1: return "🟡", "Trade Open", "-"
         
-        df_future = df.iloc[1:] # Entry ke agle din se
+        df_future = df.iloc[1:] # Skip entry day
         t1_hit = False
         days = 0
         
@@ -33,9 +34,10 @@ def get_accurate_journey(ticker, entry, sl, t1, t2, signal_dt):
                     if h >= t2: return "🟢", "Jackpot (T1 & T2 Hit)", f"{days}d"
             else:
                 if h >= t2: return "🟢", "Profit (T1 -> T2)", f"{days}d"
-                if l <= entry: return "🟡", "Break Even (T1 hit then SL)", f"{days}d"
+                # Amber Logic: If T1 was hit, then price came back to entry (Break Even)
+                if l <= entry: return "🟡", "Break Even (T1 hit then BE)", f"{days}d"
                 
-        if t1_hit: return "🟢", "Partial Profit (T1 hit, Running)", f"{days}d"
+        if t1_hit: return "🟢", "Partial Profit (T1 Hit, Running)", f"{days}d"
         return "⏳", "Still Running", "-"
     except:
         return "⚪", "Error", "-"
@@ -48,10 +50,9 @@ def run_scanner():
 
     for i, ticker in enumerate(NIFTY_200):
         try:
-            status.text(f"Checking {ticker}...")
-            # Fetch data with buffer for SMAs
+            status.text(f"Scanning {ticker}...")
+            # Buffer data for SMA
             data = yf.download(ticker, start=target_date - timedelta(days=400), end=datetime.now(), auto_adjust=True, progress=False)
-            
             if len(data) < 200 or t_ts not in data.index: continue
             
             data['SMA_44'] = data['Close'].rolling(window=44).mean()
@@ -68,11 +69,12 @@ def run_scanner():
                     results.append({
                         "Stock": ticker.replace(".NS", ""),
                         "Status": dot,
-                        "Result": outcome,
+                        "Outcome": outcome,
                         "Days": time_info,
                         "Entry": round(c, 2),
                         "SL": round(l, 2),
-                        "T1": round(c + risk, 2)
+                        "T1": round(c + risk, 2),
+                        "T2": round(c + (2*risk), 2)
                     })
         except: continue
         p_bar.progress((i + 1) / len(NIFTY_200))
@@ -80,18 +82,28 @@ def run_scanner():
     status.empty()
     return pd.DataFrame(results)
 
-if st.button('🚀 Run Analysis'):
+if st.button('🚀 Start Analysis'):
     final_df = run_scanner()
     if not final_df.empty:
-        st.write(f"### 📈 Report for {target_date}")
+        # --- SUCCESS RATE CALCULATIONS ---
+        total = len(final_df)
+        success = len(final_df[final_df['Status'] == "🟢"])
+        breakeven = len(final_df[final_df['Status'] == "🟡"])
+        loss = len(final_df[final_df['Status'] == "🔴"])
+        
+        success_pct = round((success / total) * 100, 1)
+        be_pct = round((breakeven / total) * 100, 1)
+
+        # --- TOP METRICS DASHBOARD ---
+        st.subheader(f"📊 Summary for {target_date}")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Signals", total)
+        col2.metric("Success Rate (🟢)", f"{success_pct}%")
+        col3.metric("Break Even (🟡)", f"{be_pct}%")
+        col4.metric("Loss (🔴)", f"{total - success - breakeven}")
+        
+        st.divider()
+        st.write("### 📈 Detailed Trade Journey")
         st.table(final_df)
     else:
-        st.warning("Koi signal nahi mila is date par.")
-
-st.markdown("""
----
-**Logic Breakdown:**
-- 🟢 **Green:** Target hit hua (Profit).
-- 🔴 **Red:** Sidha Stoploss hit hua (Loss).
-- 🟡 **Amber:** T1 hit hua par T2 se pehle Entry price par wapas aa gaya (Break Even).
-""")
+        st.warning("No signals found on this date.")
