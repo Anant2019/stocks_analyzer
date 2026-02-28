@@ -3,86 +3,62 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="Nifty 200 Scanner", layout="wide")
+st.set_page_config(page_title="Pro Strategy Scanner", layout="wide")
 
-# --- Nifty 200 Tickers List (Manual but Reliable) ---
-# Maine top stocks daal diye hain, ye kabhi block nahi honge.
+# --- Full Nifty 200 Tickers List ---
 NIFTY_200 = [
-    'ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS',
-    'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS',
-    'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS',
-    'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS',
-    'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS',
-    'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS',
-    'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS',
-    'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS',
-    'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS',
-    'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS',
-    'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS',
-    'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS',
-    'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS',
-    'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS',
-    'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS',
-    'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS',
-    'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS',
-    'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS',
-    'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS',
-    'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS',
-    'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS'
+    'ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS', 'ABCAPITAL.NS', 'ABFRL.NS', 'APLLTD.NS', 'ASHOKLEY.NS', 'ASTRAL.NS', 'AVANTIFEED.NS', 'BALRAMCHIN.NS', 'BHARATFORG.NS', 'BSOFT.NS', 'CANFINHOME.NS', 'CHAMBLFERT.NS', 'COROMANDEL.NS', 'CROMPTON.NS', 'DEEPAKFERT.NS', 'EQUITASBNK.NS', 'ESCORTS.NS', 'FORTIS.NS', 'GLENMARK.NS', 'GMRINFRA.NS', 'GNFC.NS', 'GRANULES.NS', 'GSPL.NS', 'HAVELLS.NS', 'IDFC.NS', 'IEX.NS', 'INDIACEM.NS', 'INDIAMART.NS', 'INDHOTEL.NS', 'JINDALSTEL.NS', 'JKCEMENT.NS', 'LAURUSLABS.NS', 'LICHSGFIN.NS', 'LTTS.NS', 'MANAPPURAM.NS', 'METROPOLIS.NS', 'MFSL.NS', 'NATIONALUM.NS', 'NAVINFLUOR.NS', 'OBEROIRLTY.NS', 'PEL.NS', 'PERSISTENT.NS', 'PETRONET.NS', 'PFC.NS', 'PVRINOX.NS', 'RAMCOCEM.NS', 'RBLBANK.NS', 'RECLTD.NS', 'TATACOMM.NS', 'TVSMOTOR.NS', 'ZEEL.NS'
 ]
 
-def scan_stocks():
+def scan_and_calculate():
     found_stocks = []
     progress_bar = st.progress(0)
-    status_text = st.empty()
-
+    
     for i, ticker in enumerate(NIFTY_200):
         try:
-            status_text.text(f"Scanning {i+1}/{len(NIFTY_200)}: {ticker}")
-            
-            # 1.5 years data for buffer
-            df = yf.download(ticker, period="18mo", interval="1d", progress=False)
-            
+            df = yf.download(ticker, period="1y", interval="1d", progress=False)
             if len(df) < 200: continue
             
-            # TA Calculations
             df['SMA_44'] = df['Close'].rolling(window=44).mean()
             df['SMA_200'] = df['Close'].rolling(window=200).mean()
             
             last = df.iloc[-1]
-            # Price handling for multi-index fix
             price = float(last['Close'])
             open_p = float(last['Open'])
+            low_p = float(last['Low'])
             sma44 = float(last['SMA_44'])
             sma200 = float(last['SMA_200'])
 
-            # Strategy: Price > 44 > 200 + Green Candle
+            # --- Strategy Logic ---
             if price > sma44 and sma44 > sma200 and price > open_p:
-                found_stocks.append({
-                    "Stock": ticker.replace(".NS", ""),
-                    "LTP": round(price, 2),
-                    "SMA 44": round(sma44, 2),
-                    "SMA 200": round(sma200, 2),
-                    "Today Gain %": round(((price - open_p)/open_p)*100, 2)
-                })
-        except Exception:
-            continue
-        
+                risk = price - low_p
+                if risk > 0:
+                    t1 = price + risk       # 1:1 Ratio
+                    t2 = price + (2 * risk) # 1:2 Ratio
+                    
+                    found_stocks.append({
+                        "Stock Name": ticker.replace(".NS", ""),
+                        "Buy At": round(price, 2),
+                        "Stop Loss (SL)": round(low_p, 2),
+                        "Target 1 (Sell 50%)": round(t1, 2),
+                        "Target 2 (Exit All)": round(t2, 2)
+                    })
+        except: continue
         progress_bar.progress((i + 1) / len(NIFTY_200))
-    
-    status_text.text("Scan Completed! ✅")
     return pd.DataFrame(found_stocks)
 
 # --- UI ---
-st.title("🎯 Nifty 200 Strategy Scanner")
-st.markdown("### Criteria: `Price > SMA 44 > SMA 200` + `Green Candle`")
+st.title("🏹 1:2 Ratio Bullish Scanner")
+st.subheader("Strategy: Price > SMA 44 > SMA 200 | Exit 50% at 1:1")
 
-if st.button('🔍 Run Scan Now'):
-    results = scan_stocks()
+if st.button('🔍 Start Analysis'):
+    results = scan_and_calculate()
     if not results.empty:
-        st.success(f"Dhun liya! Total {len(results)} stocks bullish hain.")
-        st.dataframe(results.sort_values(by="Today Gain %", ascending=False), use_container_width=True)
+        st.success(f"Dhun liya! {len(results)} stocks trade ke liye ready hain.")
+        
+        # Displaying with Style
+        st.table(results)
+        
+        st.info("💡 Tip: Target 1 par 50% bech dein aur Stop Loss ko 'Buy Price' par le aayein (Trail SL).")
     else:
-        st.warning("Aaj koi bhi stock criteria match nahi kar raha.")
-
-st.info("💡 Yeh scan Yahoo Finance use karta hai, isliye NSE block nahi karega.")
+        st.warning("Aaj koi setup nahi mila.")
