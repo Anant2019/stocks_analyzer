@@ -3,30 +3,26 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Nifty 200 Final Backtest Dashboard", layout="wide")
+st.set_page_config(page_title="Nifty 200 Pro Backtester", layout="wide")
 
 # --- NIFTY 200 LIST ---
 NIFTY_200 = [
     'ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS'
 ]
 
-st.title("🏹 Nifty 200 Backtest Dashboard")
-target_date = st.date_input("Kounsi date ka success rate dekhna hai?", datetime.now() - timedelta(days=15))
+st.title("🎯 Backtest Dashboard: Profit/Loss Analytics")
+target_date = st.date_input("Kounsi date ke stats chahiye?", datetime.now() - timedelta(days=15))
 
 def get_accurate_journey(ticker, entry, sl, t1, t2, signal_dt):
     try:
-        # Download strictly from signal date to today
         df = yf.download(ticker, start=signal_dt, auto_adjust=True, progress=False)
         if len(df) <= 1: return "🟡", "Trade Open", "-"
-        
-        df_future = df.iloc[1:] # Skip entry day
+        df_future = df.iloc[1:]
         t1_hit = False
         days = 0
-        
         for dt, row in df_future.iterrows():
             days += 1
             h, l = float(row['High']), float(row['Low'])
-            
             if not t1_hit:
                 if l <= sl: return "🔴", "Loss (Direct SL)", f"{days}d"
                 if h >= t1: 
@@ -34,13 +30,10 @@ def get_accurate_journey(ticker, entry, sl, t1, t2, signal_dt):
                     if h >= t2: return "🟢", "Jackpot (T1 & T2 Hit)", f"{days}d"
             else:
                 if h >= t2: return "🟢", "Profit (T1 -> T2)", f"{days}d"
-                # Amber Logic: If T1 was hit, then price came back to entry (Break Even)
-                if l <= entry: return "🟡", "Break Even (T1 hit then BE)", f"{days}d"
-                
-        if t1_hit: return "🟢", "Partial Profit (T1 Hit, Running)", f"{days}d"
+                if l <= entry: return "🟡", "Break Even (T1 hit -> BE)", f"{days}d"
+        if t1_hit: return "🟢", "Partial Profit (T1 Hit)", f"{days}d"
         return "⏳", "Still Running", "-"
-    except:
-        return "⚪", "Error", "-"
+    except: return "⚪", "Error", "-"
 
 def run_scanner():
     results = []
@@ -50,60 +43,38 @@ def run_scanner():
 
     for i, ticker in enumerate(NIFTY_200):
         try:
-            status.text(f"Scanning {ticker}...")
-            # Buffer data for SMA
+            status.text(f"Analysing {ticker}...")
             data = yf.download(ticker, start=target_date - timedelta(days=400), end=datetime.now(), auto_adjust=True, progress=False)
             if len(data) < 200 or t_ts not in data.index: continue
-            
             data['SMA_44'] = data['Close'].rolling(window=44).mean()
             data['SMA_200'] = data['Close'].rolling(window=200).mean()
-            
             day = data.loc[t_ts]
             c, o, l = float(day['Close']), float(day['Open']), float(day['Low'])
-            s44, s200 = float(day['SMA_44']), float(day['SMA_200'])
-
-            if c > s44 and s44 > s200 and c > o:
-                risk = c - l
-                if risk > 0:
-                    dot, outcome, time_info = get_accurate_journey(ticker, c, l, c + risk, c + (2*risk), target_date)
-                    results.append({
-                        "Stock": ticker.replace(".NS", ""),
-                        "Status": dot,
-                        "Outcome": outcome,
-                        "Days": time_info,
-                        "Entry": round(c, 2),
-                        "SL": round(l, 2),
-                        "T1": round(c + risk, 2),
-                        "T2": round(c + (2*risk), 2)
-                    })
+            if c > day['SMA_44'] and day['SMA_44'] > day['SMA_200'] and c > o:
+                dot, outcome, time_info = get_accurate_journey(ticker, c, l, c+(c-l), c+(2*(c-l)), target_date)
+                results.append({"Stock": ticker.replace(".NS",""), "Status": dot, "Result": outcome, "Days": time_info})
         except: continue
         p_bar.progress((i + 1) / len(NIFTY_200))
-    
     status.empty()
     return pd.DataFrame(results)
 
-if st.button('🚀 Start Analysis'):
+if st.button('🚀 Get Success vs Loss %'):
     final_df = run_scanner()
     if not final_df.empty:
-        # --- SUCCESS RATE CALCULATIONS ---
         total = len(final_df)
         success = len(final_df[final_df['Status'] == "🟢"])
-        breakeven = len(final_df[final_df['Status'] == "🟡"])
+        be = len(final_df[final_df['Status'] == "🟡"])
         loss = len(final_df[final_df['Status'] == "🔴"])
         
-        success_pct = round((success / total) * 100, 1)
-        be_pct = round((breakeven / total) * 100, 1)
-
-        # --- TOP METRICS DASHBOARD ---
-        st.subheader(f"📊 Summary for {target_date}")
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Signals", total)
-        col2.metric("Success Rate (🟢)", f"{success_pct}%")
-        col3.metric("Break Even (🟡)", f"{be_pct}%")
-        col4.metric("Loss (🔴)", f"{total - success - breakeven}")
+        # Dashboard Cards
+        st.subheader(f"📊 Summary Dashboard ({target_date})")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Signals", total)
+        c2.metric("Success (🟢)", f"{success} ({round((success/total)*100, 1)}%)")
+        c3.metric("Break-Even (🟡)", f"{be} ({round((be/total)*100, 1)}%)")
+        c4.metric("Loss (🔴)", f"{loss} ({round((loss/total)*100, 1)}%)")
         
         st.divider()
-        st.write("### 📈 Detailed Trade Journey")
         st.table(final_df)
     else:
-        st.warning("No signals found on this date.")
+        st.warning("No signals found.")
