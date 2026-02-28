@@ -10,8 +10,8 @@ NIFTY_200 = [
     'ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS'
 ]
 
-st.title("🎯 Nifty 200: Ultimate Backtest Dashboard")
-target_date = st.date_input("Kounsi date ka analytics dekhna hai?", datetime.now() - timedelta(days=15))
+st.title("🎯 Triple Bullish Backtest (Next Day Entry)")
+target_date = st.date_input("Kounsi date check karni hai?", datetime.now() - timedelta(days=20))
 
 def run_stable_backtest():
     results = []
@@ -21,8 +21,8 @@ def run_stable_backtest():
 
     for i, ticker in enumerate(NIFTY_200):
         try:
-            status_text.text(f"Checking {ticker}...")
-            # Fetch data (Tere code wala same approach)
+            status_text.text(f"Scanning {ticker}...")
+            # Fetch data 
             data = yf.download(ticker, start=target_date - timedelta(days=400), end=datetime.now(), auto_adjust=True, progress=False)
             
             if len(data) < 201 or t_ts not in data.index:
@@ -31,27 +31,22 @@ def run_stable_backtest():
             data['SMA_44'] = data['Close'].rolling(window=44).mean()
             data['SMA_200'] = data['Close'].rolling(window=200).mean()
             
-            # --- TERA SIGNAL DAY LOGIC ---
-            idx = data.index.get_loc(t_ts)
-            day_data = data.iloc[idx]
-            prev_day_data = data.iloc[idx-1] # Previous day for slope check
-            
+            day_data = data.loc[t_ts]
             close = float(day_data['Close'])
             open_p = float(day_data['Open'])
             low_p = float(day_data['Low'])
             sma44 = float(day_data['SMA_44'])
             sma200 = float(day_data['SMA_200'])
 
-            # IMPROVEMENT 1: Added SMA Slope check (Rising Trend)
-            sma_rising = (sma44 > prev_day_data['SMA_44']) and (sma200 > prev_day_data['SMA_200'])
-
-            if close > sma44 and sma44 > sma200 and close > open_p and sma_rising:
+            # --- TERA ORIGINAL LOGIC ---
+            if close > sma44 and sma44 > sma200 and close > open_p:
                 
-                # IMPROVEMENT 2: ENTRY T+1 (Agle din check karega data)
-                if idx + 1 >= len(data): continue
+                # --- T+1 ENTRY LOGIC ( Dusre din entry ) ---
+                future_df = data[data.index > t_ts]
+                if future_df.empty: continue
                 
-                # IMPROVEMENT 3: BUFFER ENTRY
-                entry_price = close + 2
+                # Agle din ki pehli candle par entry
+                entry_price = close  # Entry at Signal Day Close
                 sl = low_p
                 risk = entry_price - sl
                 
@@ -59,9 +54,7 @@ def run_stable_backtest():
                     t1 = entry_price + risk
                     t2 = entry_price + (2 * risk)
                     
-                    # Tracking Future (Next day onwards)
-                    future_df = data.iloc[idx+1:] 
-                    dot, outcome, days = "⏳", "Still Running", "-"
+                    dot, outcome, days = "⏳", "Running", "-"
                     t1_hit = False
                     d_count = 0
                     
@@ -77,14 +70,14 @@ def run_stable_backtest():
                                 t1_hit = True
                                 dot, outcome, days = "🟢", "T1 Hit", f"{d_count}d"
                                 if h >= t2:
-                                    outcome = "🔥 Jackpot (T1 & T2 Hit)"
+                                    outcome = "🔥 T1 & T2 Hit"
                                     break
                         else:
                             if h >= t2:
-                                dot, outcome, days = "🟢", "Full Profit (T1 -> T2)", f"{d_count}d"
+                                dot, outcome, days = "🟢", "T2 Hit", f"{d_count}d"
                                 break
                             if l <= entry_price:
-                                dot, outcome, days = "🟡", "Break Even (T1 -> BE)", f"{d_count}d"
+                                dot, outcome, days = "🟡", "Break Even", f"{d_count}d"
                                 break
                     
                     results.append({
@@ -94,33 +87,29 @@ def run_stable_backtest():
                         "Days": days,
                         "Entry": round(entry_price, 2),
                         "SL": round(sl, 2),
-                        "T2": round(t2, 2)
+                        "T1": round(t1, 2)
                     })
-        except Exception:
-            continue
+        except: continue
         progress_bar.progress((i + 1) / len(NIFTY_200))
         
     status_text.empty()
     return pd.DataFrame(results)
 
-if st.button('🚀 Start Analysis'):
+if st.button('🚀 Run Analysis'):
     df_results = run_stable_backtest()
-    
     if not df_results.empty:
         total = len(df_results)
         green = len(df_results[df_results['Status'] == "🟢"])
         amber = len(df_results[df_results['Status'] == "🟡"])
         red = len(df_results[df_results['Status'] == "🔴"])
 
-        st.subheader(f"📊 Summary for {target_date}")
+        st.subheader(f"📊 Results for {target_date}")
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Signals Found", total)
-        c2.metric("Success (🟢)", f"{green} ({round((green/total)*100, 1)}%)")
-        c3.metric("Break-Even (🟡)", f"{amber} ({round((amber/total)*100, 1)}%)")
-        c4.metric("Loss (🔴)", f"{red} ({round((red/total)*100, 1)}%)")
+        c1.metric("Signals", total)
+        c2.metric("Success", f"{round((green/total)*100, 1)}%")
+        c3.metric("Break-Even", f"{round((amber/total)*100, 1)}%")
+        c4.metric("Loss", f"{round((red/total)*100, 1)}%")
         
-        st.divider()
-        st.write("### 🔍 Detailed Breakdown (Next Day Entry)")
         st.table(df_results)
     else:
-        st.warning("Is date par koi signal nahi mila.")
+        st.warning("Is date par koi signal nahi mila. Dusri date select karein.")
