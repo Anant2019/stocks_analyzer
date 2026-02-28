@@ -22,7 +22,7 @@ NIFTY_200 = [
 
 
 
-st.title("🛡️ The 90% Accuracy Jackpot Filter")
+st.title("🛡️ The eduational purpose Filter")
 
 
 
@@ -198,7 +198,7 @@ if st.button('🚀 Run Analysis'):
 
         c3.metric("🎯 Blue Accuracy", f"{round((hits_blue/total_blue)*100, 1) if total_blue > 0 else 0}%")
 
-        c4.write("*(This is only for educational purpose and this may be wrong sometimes)*")
+        
 
         
 
