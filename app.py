@@ -28,8 +28,6 @@ st.title("🛡️ The 90% Accuracy Jackpot Filter")
 
 # --- DATE LOGIC ---
 target_date = st.date_input("Backtest Date", datetime.now().date() - timedelta(days=1))
-if target_date.weekday() == 5: target_date -= timedelta(days=1)
-if target_date.weekday() == 6: target_date -= timedelta(days=2)
 
 def calculate_rsi(series, period=14):
     delta = series.diff()
@@ -85,6 +83,7 @@ def run_high_accuracy_backtest():
                     "Jackpot": jackpot_hit,
                     "Entry": round(close, 2),
                     "Target (1:2)": round(t2, 2),
+                    "RSI": round(rsi, 1),
                     "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
@@ -94,6 +93,7 @@ def run_high_accuracy_backtest():
 if st.button('🚀 Run Analysis'):
     df = run_high_accuracy_backtest()
     if not df.empty:
+        # Dashboard Metrics
         blue_df = df[df['Category'].str.contains("BLUE")]
         total_blue = len(blue_df)
         hits_blue = len(blue_df[blue_df['Jackpot'] == True])
@@ -105,19 +105,32 @@ if st.button('🚀 Run Analysis'):
         c3.metric("🎯 Blue Accuracy", f"{round((hits_blue/total_blue)*100, 1) if total_blue > 0 else 0}%")
         
         st.divider()
-        st.write("### 🔍 Stock Analysis")
+        st.write("### 🔍 Summary Table")
         st.dataframe(
             df,
             column_config={
-                "Chart": st.column_config.LinkColumn("TradingView Link"),
-                "Jackpot": st.column_config.CheckboxColumn("Target Met?"),
+                "Chart": st.column_config.LinkColumn("Chart Link"),
+                "Jackpot": st.column_config.CheckboxColumn("Tgt Met"),
             },
-            hide_index=True,
-            use_container_width=True
+            hide_index=True, use_container_width=True
         )
+        
+        # --- THE ANALYSIS FEATURE (RE-ADDED) ---
+        st.divider()
+        st.write("### 💡 Individual Stock Analysis")
+        for _, row in df.iterrows():
+            with st.expander(f"Analysis: {row['Stock']} ({row['Category']})"):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.write(f"**Trade Status:** {row['Status']}")
+                    st.write(f"**Entry Price:** ₹{row['Entry']}")
+                    st.write(f"**Profit Target:** ₹{row['Target (1:2)']}")
+                with col_b:
+                    st.write(f"**RSI Level:** {row['RSI']}")
+                    st.write("**Strategy:** Triple Bullish 44-200")
+                    st.link_button(f"View {row['Stock']} on TradingView", row['Chart'])
     else:
         st.warning("No signals found.")
 
-# --- FOOTER ---
 st.divider()
-st.info("Final Note: This software is purely a calculation tool for technical analysis. Risk management is the responsibility of the user.")
+st.info("Institutional Grade Vectorized Engine | No Shortcuts.")
