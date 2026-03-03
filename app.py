@@ -6,72 +6,65 @@ from datetime import datetime, timedelta
 # Page Configuration
 st.set_page_config(page_title="Institutional Equity Scanner", layout="wide")
 
-# --- REGULATORY COMPLIANCE HEADER ---
-st.warning("⚠️ **LEGAL DISCLAIMER**: This application is strictly for **Educational Purposes** only. We are **NOT SEBI Registered** advisors. The signals generated are based on mathematical algorithms.")
+st.warning("⚠️ **LEGAL DISCLAIMER**: Educational Purposes Only. Not SEBI Registered.")
+st.title("🛡️ Final Robust Momentum Scanner")
 
-st.title("🛡️ Strategic Momentum & Success Tracker")
+# --- DATE RESTRICTION ---
+max_date = datetime.now()
+target_dt = st.date_input("Select Analysis Date", value=max_date, max_value=max_date)
 
-# --- DATE RESTRICTION LOGIC ---
-# min_date: 2 years ago (to ensure SMA 200 has data)
-# max_date: today (prevents selecting future dates)
-min_selectable_date = datetime.now() - timedelta(days=730)
-max_selectable_date = datetime.now()
-
-target_dt = st.date_input(
-    "Select Analysis Date (Past or Present Only)", 
-    value=datetime.now(),
-    min_value=min_selectable_date,
-    max_value=max_selectable_date,
-    help="Future dates are disabled because market data does not yet exist for them."
-)
-
-# --- UNIVERSE DEFINITION ---
-NIFTY_200 = [
-    'ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS'
-]
+# --- UNIVERSE ---
+NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENT.NS', 'ADANIPORTS.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJHLDNG.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CIPLA.NS', 'COALINDIA.NS', 'DLF.NS', 'DABUR.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'GAIL.NS', 'GRASIM.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ITC.NS', 'INDUSINDBK.NS', 'INFY.NS', 'JSWSTEEL.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'M&M.NS', 'MARUTI.NS', 'NTPC.NS', 'NESTLEIND.NS', 'ONGC.NS', 'POWERGRID.NS', 'RELIANCE.NS', 'SBILIFE.NS', 'SHRIRAMFIN.NS', 'SBIN.NS', 'SUNPHARMA.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'ULTRACEMCO.NS', 'WIPRO.NS', 'ZOMATO.NS']
 
 def calculate_rsi(series, period=14):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    return 100 - (100 / (1 + (gain / loss)))
+    return 100 - (100 / (1 + (gain / (loss + 1e-10)))) # Avoid division by zero
 
 def execute_scan():
     results = []
-    # Background fetch: Start 500 days before selected date for SMA 200 accuracy
-    start_fetch = target_dt - timedelta(days=500)
-    end_fetch = datetime.now()
+    # FIX: Add 1 day to end to include today's data properly
+    fetch_start = target_dt - timedelta(days=500)
+    fetch_end = target_dt + timedelta(days=1)
     
     progress_bar = st.progress(0)
+    status_text = st.sidebar.empty()
     
     for i, ticker in enumerate(NIFTY_200):
         try:
-            df = yf.download(ticker, start=start_fetch, end=end_fetch, auto_adjust=True, progress=False)
-            if df.empty or len(df) < 201: continue
+            # FIX: auto_adjust=True and clear start/end strings
+            df = yf.download(ticker, start=fetch_start.strftime('%Y-%m-%d'), 
+                             end=fetch_end.strftime('%Y-%m-%d'), 
+                             auto_adjust=True, progress=False)
             
-            # Match to nearest trading day if selected date is a holiday
-            avail_dates = df.index[df.index <= pd.Timestamp(target_dt)]
-            if avail_dates.empty: continue
-            actual_date = avail_dates[-1]
+            if df.empty or len(df) < 200:
+                continue
             
             # Indicators
             df['SMA_44'] = df['Close'].rolling(window=44).mean()
             df['SMA_200'] = df['Close'].rolling(window=200).mean()
             df['RSI'] = calculate_rsi(df['Close'])
             
-            ref = df.loc[actual_date]
+            # Snap to the exact selected date or the most recent trading day before it
+            valid_df = df[df.index.date <= target_dt]
+            if valid_df.empty: continue
+            
+            ref = valid_df.iloc[-1]
+            actual_date = valid_df.index[-1]
+            
             c, l, o = float(ref['Close']), float(ref['Low']), float(ref['Open'])
             s44, s200, rsi = float(ref['SMA_44']), float(ref['SMA_200']), float(ref['RSI'])
 
-            # Core Strategy Logic
+            # Strategy: Price > 44SMA > 200SMA and Bullish Candle
             if c > s44 and s44 > s200 and c > o:
                 risk = c - l
                 target_2 = c + (2 * risk)
-                outcome = "Pending"
                 
-                # Check performance AFTER signal date
-                future = df[df.index > actual_date]
-                for _, f_row in future.iterrows():
+                # Check outcome using data AFTER actual_date
+                future_data = df[df.index > actual_date]
+                outcome = "Pending ⏳"
+                for _, f_row in future_data.iterrows():
                     if f_row['Low'] <= l:
                         outcome = "SL Hit 🔴"
                         break
@@ -81,41 +74,38 @@ def execute_scan():
 
                 results.append({
                     "Stock": ticker.replace(".NS",""),
+                    "Signal Date": actual_date.date(),
                     "Status": outcome,
                     "Entry": round(c, 2),
                     "Stoploss": round(l, 2),
                     "Target (1:2)": round(target_2, 2),
-                    "RSI": round(rsi, 1),
-                    "TradingView": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
+                    "Win %": "Calculating..." # Placeholder for day-wide metric
                 })
-        except: continue
+        except Exception as e:
+            st.sidebar.error(f"Error {ticker}: {e}")
+            continue
         progress_bar.progress((i + 1) / len(NIFTY_200))
         
-    return pd.DataFrame(results), actual_date
+    return pd.DataFrame(results)
 
-if st.button("🚀 Run Institutional Backtest"):
-    data, final_date = execute_scan()
+if st.button("🚀 Execute Strategic Scan"):
+    data = execute_scan()
     
     if not data.empty:
-        # Success Rate Stats
+        # Success Rate Calculation
         hits = len(data[data["Status"] == "Target Hit 🟢"])
         misses = len(data[data["Status"] == "SL Hit 🔴"])
-        success_rate = (hits / (hits + misses)) * 100 if (hits + misses) > 0 else 0
-        
-        st.subheader(f"📈 Strategic Results for: {final_date.date()}")
+        total_resolved = hits + misses
+        rate = (hits / total_resolved * 100) if total_resolved > 0 else 0
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("Total Signals", len(data))
-        c2.metric("Historical Success Rate", f"{round(success_rate, 1)}%")
-        c3.metric("Targets Achieved", hits)
-        
-        st.dataframe(
-            data[["Stock", "Status", "Entry", "Stoploss", "Target (1:2)", "RSI", "TradingView"]],
-            column_config={"TradingView": st.column_config.LinkColumn("Chart")},
-            hide_index=True, use_container_width=True
-        )
+        c1.metric("Total Stocks Found", len(data))
+        c2.metric("Backtest Win Rate", f"{round(rate, 1)}%")
+        c3.metric("Resolved Trades", total_resolved)
+
+        st.dataframe(data, use_container_width=True, hide_index=True)
     else:
-        st.error("No valid setups found. This usually happens if the market was in a downtrend on the selected date.")
+        st.error("No trades met the criteria on this date. Try a different date or check if the market was trending.")
 
 st.divider()
-st.caption("Educational purposes only. No SEBI registration.")
+st.caption("Developed for institutional-grade momentum analysis.")
