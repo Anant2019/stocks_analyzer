@@ -35,8 +35,9 @@ def calculate_rsi(series, period=14):
 
 def execute_scan():
     results = []
+    # Fetch ample data for indicators and future backtesting
     fetch_start = target_dt - timedelta(days=500)
-    fetch_end = target_dt + timedelta(days=5)
+    fetch_end = datetime.now().date() + timedelta(days=1)
     
     progress_bar = st.progress(0)
     
@@ -45,39 +46,41 @@ def execute_scan():
             df = yf.download(ticker, start=fetch_start, end=fetch_end, auto_adjust=True, progress=False)
             if df.empty or len(df) < 201: continue
             
-            # Snap to last valid trading session
+            # Find the index for the user's selected date
             avail = df[df.index.date <= target_dt]
             if avail.empty: continue
             ref_idx = avail.index[-1]
             
-            # Indicators
+            # Calculate Indicators
             df['SMA_44'] = df['Close'].rolling(window=44).mean()
             df['SMA_200'] = df['Close'].rolling(window=200).mean()
             df['RSI'] = calculate_rsi(df['Close'])
-            df['Vol_Avg'] = df['Volume'].rolling(window=5).mean()
+            df['Vol_Avg'] = df['Volume'].rolling(window=10).mean()
             
-            # Strategy Points
+            # Signal Session Data
             ref = df.loc[ref_idx]
-            prev_ref = df.iloc[df.index.get_loc(ref_idx) - 1]
-            
-            c, o, l = float(ref['Close']), float(ref['Open']), float(ref['Low'])
+            c, o, l, h = float(ref['Close']), float(ref['Open']), float(ref['Low']), float(ref['High'])
             s44, s200 = float(ref['SMA_44']), float(ref['SMA_200'])
             rsi, vol, v_avg = float(ref['RSI']), float(ref['Volume']), float(ref['Vol_Avg'])
             
-            # Logic: SMA 44 and 200 in Uptrend + Bullish Candle above SMAs
-            sma_uptrend = s44 > prev_ref['SMA_44'] and s200 > prev_ref['SMA_200']
+            # --- STRATEGY LOGIC ---
+            # 1. Price is in an Institutional Uptrend (44 > 200)
+            # 2. Bullish Green Candle (Close > Open)
+            # 3. Candle is sitting above or testing the 44 SMA
+            uptrend = s44 > s200
             bullish_candle = c > o
-            above_smas = c > s44 and s44 > s200
+            above_support = c > s44 
 
-            if sma_uptrend and bullish_candle and above_smas:
+            if uptrend and bullish_candle and above_support:
                 # 🔵 BLUE vs 🟡 AMBER Logic
-                is_blue = rsi > 65 and vol > v_avg and (c > s200 * 1.05)
+                # Blue: High Momentum (RSI > 60) + High Volume
+                is_blue = rsi > 60 and vol > v_avg
                 
                 risk = c - l
                 target_2 = c + (2 * risk)
                 outcome = "Pending ⏳"
 
-                # Check Future Performance (Win/Loss)
+                # Check Future Performance
                 future = df[df.index > ref_idx]
                 if not future.empty:
                     for _, f_row in future.iterrows():
@@ -103,35 +106,28 @@ def execute_scan():
         
     return pd.DataFrame(results), ref_idx
 
-if st.button("🚀 Execute 90% Accuracy Scan"):
+if st.button("🚀 Run Institutional Strategy Scan"):
     res_df, final_date = execute_scan()
     
     if not res_df.empty:
-        # Success Rate Metrics
         resolved = res_df[res_df["Outcome"] != "Pending ⏳"]
         hits = len(resolved[resolved["Outcome"] == "Target Hit 🟢"])
         win_rate = (hits / len(resolved) * 100) if not resolved.empty else 0
         
-        st.subheader(f"📊 Market Insights: {final_date.date()}")
+        st.subheader(f"📊 Strategy Report for Session: {final_date.date()}")
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("Total Signals", len(res_df))
-        c2.metric("Backtest Success Rate", f"{round(win_rate, 1)}%")
-        c3.metric("BLUE (High Prob)", len(res_df[res_df["Category"]=="🔵 BLUE"]))
+        c1.metric("Signals Found", len(res_df))
+        c2.metric("Win Rate", f"{round(win_rate, 1)}%")
+        c3.metric("BLUE Setup", len(res_df[res_df["Category"]=="🔵 BLUE"]))
         
-        # Color Formatting logic for DataFrame
-        def color_outcome(val):
-            if val == "Target Hit 🟢": return 'color: green'
-            elif val == "SL Hit 🔴": return 'color: red'
-            return ''
-
         st.dataframe(
-            res_df[["Stock", "Category", "Outcome", "Entry", "Stoploss", "Target 1:2", "RSI", "TradingView"]].style.applymap(color_outcome, subset=['Outcome']),
+            res_df[["Stock", "Category", "Outcome", "Entry", "Stoploss", "Target 1:2", "RSI", "TradingView"]],
             column_config={"TradingView": st.column_config.LinkColumn("Chart")},
             hide_index=True, use_container_width=True
         )
     else:
-        st.error("No valid setups found. Market SMAs may not be in a synchronized uptrend.")
+        st.error("No setups found. This date may have had a bearish market or a holiday.")
 
 st.divider()
-st.caption("Developed for institutional momentum analysis. Educational use only.")
+st.caption("Professional Backtesting Tool | Educational Purposes Only.")
