@@ -4,12 +4,14 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 # Page Configuration
-st.set_page_config(page_title="Institutional Grade Equity Scanner", layout="wide")
+st.set_page_config(page_title="Institutional Equity Scanner", layout="wide")
 
-st.title("🛡️ Professional Momentum & Trend Filter")
+# --- REGULATORY COMPLIANCE HEADER ---
+st.warning("⚠️ **LEGAL DISCLAIMER**: This application is strictly for **Educational Purposes** only. We are **NOT SEBI Registered** advisors. The signals generated are based on mathematical algorithms and do not constitute financial advice. Trading involves significant risk.")
+
+st.title("🛡️ Strategic Momentum & Trend Filter")
 st.markdown("""
-This system filters the Nifty 200 universe based on **Triple Bullish Confirmation**: 
-Price > SMA 44 > SMA 200, supplemented by RSI and Volume thrust metrics.
+An advanced quantitative tool designed to identify high-probability trend continuation setups within the Nifty 200 universe.
 """)
 
 # --- UNIVERSE DEFINITION ---
@@ -18,7 +20,7 @@ NIFTY_200 = [
 ]
 
 # --- PARAMETERS ---
-selected_date = st.date_input("Execution Date (Backtest/Live)", datetime(2025, 12, 12))
+selected_date = st.date_input("Execution Date", datetime(2025, 12, 12))
 
 def calculate_rsi(series, period=14):
     delta = series.diff()
@@ -29,9 +31,9 @@ def calculate_rsi(series, period=14):
 
 def execute_analysis():
     results = []
-    # Dynamic Date Range for Technical Integrity
+    # Dynamic Date Range to ensure Technical Integrity
     start_fetch = selected_date - timedelta(days=550) 
-    end_fetch = selected_date + timedelta(days=5) # Buffer for indexing
+    end_fetch = selected_date + timedelta(days=5) 
     
     progress_ui = st.progress(0)
     
@@ -39,10 +41,10 @@ def execute_analysis():
         try:
             df = yf.download(ticker, start=start_fetch, end=end_fetch, auto_adjust=True, progress=False)
             
-            if df.empty or len(df) < 200:
+            if df.empty or len(df) < 201:
                 continue
             
-            # Handling Weekends/Holidays: Select the nearest valid trading date
+            # Holiday Handling: Select the latest valid trading session
             available_dates = df.index[df.index <= pd.Timestamp(selected_date)]
             if available_dates.empty: continue
             analysis_date = available_dates[-1]
@@ -53,35 +55,32 @@ def execute_analysis():
             df['RSI'] = calculate_rsi(df['Close'])
             df['Vol_Avg'] = df['Volume'].rolling(window=5).mean()
             
-            # Data Extraction for Analysis Date
+            # Reference Points
             ref = df.loc[analysis_date]
             c, o, l = float(ref['Close']), float(ref['Open']), float(ref['Low'])
             s44, s200, rsi = float(ref['SMA_44']), float(ref['SMA_200']), float(ref['RSI'])
             v, v_avg = float(ref['Volume']), float(ref['Vol_Avg'])
 
-            # Core Quantitative Strategy
+            # Multi-Filter Strategy
             if c > s44 and s44 > s200 and c > o:
-                # High Probability 'Blue' Classification
                 is_blue = rsi > 65 and v > v_avg and (c > s200 * 1.05)
-                
-                # Risk/Reward Projection
                 risk = c - l
                 target_2 = c + (2 * risk)
                 
-                status = "Active/Running"
-                logic_summary = f"Bullish Structure Confirmed: Price is trading above both 44 & 200 SMAs. RSI at {round(rsi,1)} indicates strong momentum."
+                status = "Active Session"
+                logic_summary = f"Bullish Structure: Trading above key SMAs. RSI at {round(rsi,1)} confirms momentum."
 
-                # Future Outcome Simulation
-                future_performance = df[df.index > analysis_date]
-                if not future_performance.empty:
-                    for _, f_row in future_performance.iterrows():
+                # Backtest Result Tracking
+                future_perf = df[df.index > analysis_date]
+                if not future_perf.empty:
+                    for _, f_row in future_perf.iterrows():
                         if f_row['Low'] <= l:
-                            status = "Stoploss Triggered"
-                            logic_summary = f"Structural Failure: Support level (Day Low) was breached. RSI was {round(rsi,1)} at entry."
+                            status = "Structural Exit (SL)"
+                            logic_summary = f"Structure Breakdown: Support at Day Low breached. RSI was {round(rsi,1)}."
                             break
                         if f_row['High'] >= target_2:
-                            status = "Target Achieved (1:2)"
-                            logic_summary = f"Momentum Jackpot: Institutional buying pressure drove price to 1:2 Reward ratio. Volume thrust was {round(v/v_avg,1)}x."
+                            status = "Strategic Jackpot (1:2)"
+                            logic_summary = f"Institutional Thrust: Achieved 1:2 Risk/Reward ratio with Volume Surge."
                             break
 
                 results.append({
@@ -92,7 +91,7 @@ def execute_analysis():
                     "Stoploss": round(l, 2),
                     "Target (1:2)": round(target_2, 2),
                     "Technical Logic": logic_summary,
-                    "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
+                    "TradingView": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except Exception:
             continue
@@ -100,30 +99,33 @@ def execute_analysis():
         
     return pd.DataFrame(results)
 
-if st.button("🚀 Execute Strategic Scan"):
-    data_output = execute_analysis()
+if st.button("🚀 Execute Strategic Analysis"):
+    output = execute_analysis()
     
-    if not data_output.empty:
-        st.subheader(f"Equity Analysis Report: {selected_date}")
+    if not output.empty:
+        st.subheader(f"Equity Market Summary: {selected_date}")
         
-        # Primary Data Display
+        # Dashboard Matrix
         st.dataframe(
-            data_output[["Stock", "Category", "Status", "Entry", "Stoploss", "Target (1:2)", "Chart"]],
-            column_config={"Chart": st.column_config.LinkColumn("View Chart")},
+            output[["Stock", "Category", "Status", "Entry", "Stoploss", "Target (1:2)", "TradingView"]],
+            column_config={"TradingView": st.column_config.LinkColumn("View Chart")},
             hide_index=True,
             use_container_width=True
         )
         
         st.divider()
         
-        # Qualitative Analysis Section
-        st.subheader("💡 Strategic Insights")
-        selected_asset = st.selectbox("Select Asset for Detailed Logic:", ["-- Select Asset --"] + data_output["Stock"].tolist())
+        # Deep Logic Section
+        st.subheader("🔍 Institutional Logic Analysis")
+        selected_stock = st.selectbox("Select Asset for Detailed Commentary:", ["-- Select Asset --"] + output["Stock"].tolist())
         
-        if selected_asset != "-- Select Asset --":
-            asset_info = data_output[data_output["Stock"] == selected_asset].iloc[0]
-            with st.container():
-                st.info(f"**Asset:** {selected_asset} | **Classification:** {asset_info['Category']}")
-                st.write(f"**Analyst Commentary:** {asset_info['Technical Logic']}")
+        if selected_stock != "-- Select Asset --":
+            asset_data = output[output["Stock"] == selected_stock].iloc[0]
+            st.info(f"**Technical Analysis for {selected_stock}**")
+            st.success(asset_data["Technical Logic"])
     else:
-        st.error("No valid strategic setups identified for the selected period. Ensure the date is a valid market session.")
+        st.error("No valid trading setups identified for the selected date. Please verify if the market was open.")
+
+# --- FOOTER COMPLIANCE ---
+st.divider()
+st.caption("Disclaimer: This tool is for algorithmic research and backtesting purposes only. Past performance does not guarantee future results. Consult a SEBI registered investment advisor before making any financial decisions.")
