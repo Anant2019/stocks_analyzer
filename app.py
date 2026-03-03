@@ -21,7 +21,7 @@ def calculate_rsi(series, period=14):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    return 100 - (100 / (1 + (gain / loss)))
+    return 100 - (100 / (1 + (gain / (loss + 1e-10))))
 
 def run_high_accuracy_backtest():
     results = []
@@ -30,10 +30,11 @@ def run_high_accuracy_backtest():
 
     for i, ticker in enumerate(NIFTY_200):
         try:
-            # Note: start date 450 days back for accurate SMA 200
-            data = yf.download(ticker, start=target_date - timedelta(days=450), end=datetime.now(), auto_adjust=True, progress=False)
+            data = yf.download(ticker, start=target_date - timedelta(days=400), end=datetime.now(), auto_adjust=True, progress=False)
             if len(data) < 201 or t_ts not in data.index: continue
+            if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
             
+            # Indicators
             data['SMA_44'] = data['Close'].rolling(window=44).mean()
             data['SMA_200'] = data['Close'].rolling(window=200).mean()
             data['RSI'] = calculate_rsi(data['Close'])
@@ -44,27 +45,28 @@ def run_high_accuracy_backtest():
             sma44, sma200, rsi = float(day_data['SMA_44']), float(day_data['SMA_200']), float(day_data['RSI'])
             vol, vol_avg = float(day_data['Volume']), float(day_data['Vol_Avg'])
 
+            # Strategy Logic
             if close > sma44 and sma44 > sma200 and close > open_p:
                 # 90% PROBABILITY FILTER (Blue Dot)
                 is_blue = rsi > 65 and vol > vol_avg and (close > sma200 * 1.05)
                 
                 risk = close - low_p
+                if risk <= 0: continue
                 t2 = close + (2 * risk)
-                future_df = data[data.index > t_ts]
                 
-                status, jackpot_hit, analysis = "⏳ Running", False, "Price is above key SMAs. Momentum is building."
+                future_df = data[data.index > t_ts]
+                status, jackpot_hit = "⏳ Running", False
                 
                 if not future_df.empty:
                     for f_dt, f_row in future_df.iterrows():
-                        if f_row['Low'] <= low_p: 
-                            status = "🔴 SL Hit"
-                            analysis = f"Support level broken. Even with RSI at {round(rsi,1)}, selling pressure was too high."
-                            break
-                        if f_row['High'] >= t2: 
+                        h, l = float(f_row['High']), float(f_row['Low'])
+                        if l <= low_p: status = "🔴 SL Hit"; break
+                        if h >= t2: 
                             status = "🔥 Jackpot Hit (1:2)"
                             jackpot_hit = True
-                            analysis = f"Momentum Win! RSI was strong at {round(rsi,1)} and Volume surge was {round(vol/vol_avg,1)}x. Target reached comfortably."
                             break
+                else:
+                    status = "🔵 LIVE BLUE" if is_blue else "🟡 LIVE AMBER"
 
                 results.append({
                     "Stock": ticker.replace(".NS",""),
@@ -72,10 +74,9 @@ def run_high_accuracy_backtest():
                     "Status": status,
                     "Jackpot": jackpot_hit,
                     "Entry": round(close, 2),
-                    "Target_2": round(t2, 2),
+                    "Target (1:2)": round(t2, 2),
                     "RSI": round(rsi, 1),
-                    "Vol_Ratio": round(vol/vol_avg, 2),
-                    "Analysis": analysis
+                    "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
         progress_bar.progress((i + 1) / len(NIFTY_200))
@@ -84,43 +85,44 @@ def run_high_accuracy_backtest():
 if st.button('🚀 Run Analysis'):
     df = run_high_accuracy_backtest()
     if not df.empty:
+        # Separate Stats for Categories
         blue_df = df[df['Category'].str.contains("BLUE")]
+        total_blue = len(blue_df)
+        hits_blue = len(blue_df[blue_df['Jackpot'] == True])
         
-        # --- DASHBOARD ---
-        st.subheader(f"📊 Market Summary: {target_date}")
+        st.subheader(f"📊 Dashboard: {target_date}")
         c1, c2, c3 = st.columns(3)
-        c1.metric("🔵 Blue Signals", len(blue_df))
-        c2.metric("🔥 Blue Jackpots", len(blue_df[blue_df['Jackpot'] == True]))
-        accuracy = (len(blue_df[blue_df['Jackpot'] == True]) / len(blue_df) * 100) if len(blue_df) > 0 else 0
-        c3.metric("🎯 Blue Accuracy", f"{round(accuracy, 1)}%")
+        c1.metric("🔵 Total Blue Signals", total_blue)
+        c2.metric("🔥 Blue Jackpots", hits_blue)
+        c3.metric("🎯 Blue Accuracy", f"{round((hits_blue/total_blue)*100, 1) if total_blue > 0 else 0}%")
         
         st.divider()
         
-        # --- NEW INTERACTIVE SECTION ---
-        st.subheader("🔍 Click a row to see Technical Analysis")
-        # Displaying the main table
-        event = st.dataframe(
-            df[["Stock", "Category", "Status", "Entry", "Target_2"]],
-            on_select="rerun",
-            selection_mode="single_row",
+        # --- INTERACTIVE TABLE ---
+        st.write("### 🔍 Stock Analysis (Click 'Chart' to view in TradingView)")
+        
+        # Formatting for a cleaner look
+        st.dataframe(
+            df,
+            column_config={
+                "Chart": st.column_config.LinkColumn("TradingView Link"),
+                "Jackpot": st.column_config.CheckboxColumn("Target Met?"),
+            },
+            hide_index=True,
             use_container_width=True
         )
+        
+        # --- DEEP DIVE SECTION ---
+        st.write("### 💡 Blue Signal Strategy Check")
+        for idx, row in blue_df.iterrows():
+            with st.expander(f"Analysis for {row['Stock']} - {row['Status']}"):
+                st.write(f"**Scenario:** Stock entered high momentum zone with RSI {row['RSI']}.")
+                st.write(f"**Technical Setup:** Close above 44 SMA, 44 SMA above 200 SMA (Bullish Stack).")
+                st.write(f"**Risk Profile:** Entry at {row['Entry']} with 1:2 Target at {row['Target (1:2)']}.")
+                st.link_button(f"Open {row['Stock']} Chart", row['Chart'])
 
-        # Logic to show analysis when a row is selected
-        selection = event.selection.rows
-        if selection:
-            selected_index = selection[0]
-            stock_data = df.iloc[selected_index]
-            
-            st.info(f"### 📊 Deep Analysis: {stock_data['Stock']}")
-            col_a, col_b, col_c = st.columns(3)
-            col_a.metric("RSI", stock_data['RSI'])
-            col_b.metric("Volume Ratio", f"{stock_data['Vol_Ratio']}x")
-            col_c.metric("Status", stock_data['Status'])
-            
-            st.success(f"**Verdict:** {stock_data['Analysis']}")
-        else:
-            st.write("👆 *Table mein kisi bhi stock par click karo uska logic dekhne ke liye.*")
-            
     else:
         st.warning("No signals found.")
+
+st.divider()
+st.caption("Algorithm strictly mirrors Pine Script logic with Volume & RSI Momentum Filters.")
