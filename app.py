@@ -3,19 +3,31 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 
-# Page Layout
-st.set_page_config(page_title="Institutional Strategy Tracker", layout="wide")
+# --- PAGE CONFIGURATION ---
+st.set_page_config(page_title="Institutional Strategy Analyzer", layout="wide")
 
-# --- COMPLIANCE ---
-st.warning("⚠️ **LEGAL DISCLAIMER**: Strictly for Educational Purposes. We are NOT SEBI Registered advisors.")
-st.title("🛡️ 90% Accuracy Strategy: Historical & Live Tracker")
+# --- REGULATORY DISCLAIMER ---
+st.warning("⚠️ **LEGAL DISCLAIMER**: This system is for **Educational Purposes Only**. We are **NOT SEBI Registered** advisors. Trading involves significant capital risk. Past performance is not indicative of future results.")
 
-# --- DATE PICKER (Restricted to Today) ---
+st.title("🛡️ Nifty 200: Institutional Momentum & Success Tracker")
+st.markdown("### Strategy: 44 SMA / 200 SMA Bullish Trend Confirmation")
+
+# --- DATE SELECTION ---
+# Restrict to today's date maximum to avoid empty future data
 max_date = datetime.now().date()
-target_dt = st.date_input("Select Signal Date", value=max_date, max_value=max_date)
+target_dt = st.date_input("Select Signal Execution Date", value=max_date, max_value=max_date)
 
-# --- UNIVERSE ---
-NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENT.NS', 'ADANIPORTS.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CIPLA.NS', 'COALINDIA.NS', 'DLF.NS', 'DABUR.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'GAIL.NS', 'GRASIM.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ITC.NS', 'INDUSINDBK.NS', 'INFY.NS', 'JSWSTEEL.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'M&M.NS', 'MARUTI.NS', 'NTPC.NS', 'NESTLEIND.NS', 'ONGC.NS', 'POWERGRID.NS', 'RELIANCE.NS', 'SBIN.NS', 'SUNPHARMA.NS', 'TATAMOTORS.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'ULTRACEMCO.NS', 'WIPRO.NS', 'ZOMATO.NS']
+# --- TICKER UNIVERSE (NIFTY 200) ---
+NIFTY_200 = [
+    'ABB.NS', 'ACC.NS', 'ADANIENT.NS', 'ADANIPORTS.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AXISBANK.NS', 
+    'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BPCL.NS', 'BRITANNIA.NS', 
+    'CANBK.NS', 'CIPLA.NS', 'COALINDIA.NS', 'DLF.NS', 'DABUR.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'GAIL.NS', 
+    'GRASIM.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 
+    'HINDUNILVR.NS', 'ICICIBANK.NS', 'ITC.NS', 'INDUSINDBK.NS', 'INFY.NS', 'JSWSTEEL.NS', 'KOTAKBANK.NS', 
+    'LT.NS', 'LTIM.NS', 'M&M.NS', 'MARUTI.NS', 'NTPC.NS', 'NESTLEIND.NS', 'ONGC.NS', 'POWERGRID.NS', 
+    'RELIANCE.NS', 'SBIN.NS', 'SUNPHARMA.NS', 'TATAMOTORS.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 
+    'TITAN.NS', 'ULTRACEMCO.NS', 'WIPRO.NS', 'ZOMATO.NS'
+]
 
 def calculate_rsi(series, period=14):
     delta = series.diff()
@@ -23,99 +35,106 @@ def calculate_rsi(series, period=14):
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     return 100 - (100 / (1 + (gain / (loss + 1e-10))))
 
-def run_historical_scanner():
+def execute_institutional_scan():
     results = []
-    # Dynamic Window: 300 days before target for SMA, 120 days after for Outcome
-    fetch_start = target_dt - timedelta(days=400)
-    fetch_end = target_dt + timedelta(days=120) 
+    # Fetch window: 500 days before target (for SMA) to current date (for outcomes)
+    fetch_start = target_dt - timedelta(days=500)
+    fetch_end = datetime.now().date() + timedelta(days=2)
     
-    # Ensure fetch_end doesn't exceed tomorrow
-    today_plus = datetime.now().date() + timedelta(days=1)
-    if fetch_end > today_plus:
-        fetch_end = today_plus
-
-    progress = st.progress(0)
+    progress_bar = st.progress(0)
     
     for i, ticker in enumerate(NIFTY_200):
         try:
-            df = yf.download(ticker, start=fetch_start, end=fetch_end, auto_adjust=True, progress=False)
-            if df.empty or len(df) < 200: continue
+            # Download and flatten multi-index if necessary
+            data = yf.download(ticker, start=fetch_start, end=fetch_end, auto_adjust=True, progress=False)
+            if data.empty or len(data) < 200: continue
             
-            # Snap to the specific day or last trading day
-            valid_days = df[df.index.date <= target_dt]
-            if valid_days.empty: continue
-            ref_idx = valid_days.index[-1]
+            # Ensure columns are simple (handles yfinance 0.2.x+ changes)
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.get_level_values(0)
+
+            # Technical Indicator Calculation
+            data['SMA_44'] = data['Close'].rolling(window=44).mean()
+            data['SMA_200'] = data['Close'].rolling(window=200).mean()
+            data['RSI'] = calculate_rsi(data['Close'])
+            data['Vol_Avg'] = data['Volume'].rolling(window=10).mean()
+
+            # Filter data up to the chosen target date
+            signal_df = data[data.index.date <= target_dt]
+            if signal_df.empty: continue
             
-            # Indicators
-            df['SMA_44'] = df['Close'].rolling(window=44).mean()
-            df['SMA_200'] = df['Close'].rolling(window=200).mean()
-            df['RSI'] = calculate_rsi(df['Close'])
-            df['Vol_Avg'] = df['Volume'].rolling(window=10).mean()
+            ref_idx = signal_df.index[-1]
+            row = data.loc[ref_idx]
             
-            # Extract Signal Row
-            row = df.loc[ref_idx]
+            # --- STRATEGY ENGINE ---
             c, o, l = float(row['Close']), float(row['Open']), float(row['Low'])
-            s44, s200, rsi = float(row['SMA_44']), float(row['SMA_200']), float(row['RSI'])
-            v, v_avg = float(row['Volume']), float(row['Vol_Avg'])
+            s44, s200 = float(row['SMA_44']), float(row['SMA_200'])
+            rsi, vol, v_avg = float(row['RSI']), float(row['Volume']), float(row['Vol_Avg'])
 
-            # --- STRATEGY CORE ---
-            # 1. Price > 44 SMA > 200 SMA (Institutional Trend)
+            # 1. Price > SMA 44 > SMA 200 (Uptrend Structure)
             # 2. Bullish Green Candle (Close > Open)
+            is_uptrend = c > s44 and s44 > s200
             is_bullish = c > o
-            is_trend_aligned = c > s44 and s44 > s200
 
-            if is_bullish and is_trend_aligned:
-                is_blue = rsi > 60 and v > v_avg
+            if is_uptrend and is_bullish:
+                # Category Logic
+                is_blue = rsi > 60 and vol > v_avg
                 
                 risk = c - l
-                t2 = c + (2 * risk)
+                target_price = c + (2 * risk)
                 outcome = "Pending ⏳"
 
-                # Analyze subsequent price action
-                future = df[df.index > ref_idx]
-                for _, f_row in future.iterrows():
+                # Check Post-Signal Price Action (Backtest)
+                future_data = data[data.index > ref_idx]
+                for _, f_row in future_data.iterrows():
                     if f_row['Low'] <= l:
                         outcome = "SL Hit 🔴"
                         break
-                    if f_row['High'] >= t2:
+                    if f_row['High'] >= target_price:
                         outcome = "Target Hit 🟢"
                         break
 
                 results.append({
                     "Stock": ticker.replace(".NS",""),
                     "Category": "🔵 BLUE" if is_blue else "🟡 AMBER",
-                    "Outcome": outcome,
+                    "Status": outcome,
                     "Entry": round(c, 2),
                     "Stoploss": round(l, 2),
-                    "Target (1:2)": round(t2, 2),
+                    "Target (1:2)": round(target_price, 2),
                     "RSI": round(rsi, 1),
-                    "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
+                    "TradingView": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
-        except: continue
-        progress.progress((i + 1) / len(NIFTY_200))
-    return pd.DataFrame(results)
+        except Exception as e:
+            continue
+        progress_bar.progress((i + 1) / len(NIFTY_200))
+        
+    return pd.DataFrame(results), target_dt
 
 if st.button("🚀 Execute Strategic Analysis"):
-    data = run_historical_scanner()
+    final_df, report_date = execute_institutional_scan()
     
-    if not data.empty:
-        resolved = data[data["Outcome"] != "Pending ⏳"]
-        hits = len(resolved[resolved["Outcome"] == "Target Hit 🟢"])
+    if not final_df.empty:
+        # Performance Analytics
+        resolved = final_df[final_df["Status"] != "Pending ⏳"]
+        hits = len(resolved[resolved["Status"] == "Target Hit 🟢"])
         win_rate = (hits / len(resolved) * 100) if not resolved.empty else 0
         
-        st.subheader(f"📊 Strategy Performance Summary")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Signals Identified", len(data))
-        m2.metric("Win Rate (%)", f"{round(win_rate, 1)}%")
-        m3.metric("High-Prob (BLUE)", len(data[data["Category"]=="🔵 BLUE"]))
+        st.subheader(f"📊 Market Analysis Summary: {report_date}")
         
+        # Professional Dashboard Metrics
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Total Bullish Signals", len(final_df))
+        m2.metric("Backtest Win Rate (%)", f"{round(win_rate, 1)}%")
+        m3.metric("High-Prob BLUE Setups", len(final_df[final_df["Category"]=="🔵 BLUE"]))
+        
+        # Stylized Results Table
         st.dataframe(
-            data[["Stock", "Category", "Outcome", "Entry", "Stoploss", "Target (1:2)", "RSI", "Chart"]],
-            column_config={"Chart": st.column_config.LinkColumn("View Chart")},
+            final_df[["Stock", "Category", "Status", "Entry", "Stoploss", "Target (1:2)", "RSI", "TradingView"]],
+            column_config={"TradingView": st.column_config.LinkColumn("View Chart")},
             hide_index=True, use_container_width=True
         )
     else:
-        st.error("No valid setups identified for this date. Ensure it was a trading day and the trend was bullish.")
+        st.error("No valid trades identified for the chosen session. This indicates the market structure did not meet the 44/200 SMA bullish requirements.")
 
 st.divider()
-st.caption("Institutional Trading Research Tool. Not for financial advice.")
+st.caption("Developed for institutional-grade research. All signals are algorithmic and require independent verification.")
