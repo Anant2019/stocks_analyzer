@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# --- 1. INSTITUTIONAL PAGE CONFIG (Mobile Friendly) ---
+# --- 1. INSTITUTIONAL PAGE CONFIG ---
 st.set_page_config(
     page_title="ArthaSutra | Strategy Auditor", 
     layout="wide", 
@@ -12,29 +12,48 @@ st.set_page_config(
     page_icon="💹"
 )
 
-# --- 2. CUSTOM CSS FOR MOBILE OPTIMIZATION ---
+# --- 2. ADVANCED CSS (DARK/LIGHT MODE & ALIGNMENT) ---
 st.markdown("""
     <style>
-    [data-testid="stMetricValue"] { font-size: 1.8rem !important; }
-    .stDownloadButton button { width: 100%; border-radius: 8px; background-color: #f0f2f6; }
-    .stButton button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; }
-    .reportview-container .main .block-container { padding-top: 2rem; }
-    @media (max-width: 600px) {
-        [data-testid="stMetricValue"] { font-size: 1.4rem !important; }
+    /* Metric Styling */
+    [data-testid="stMetricValue"] { font-size: 1.8rem !important; font-weight: 700; }
+    
+    /* Button Alignment for Laptop vs Mobile */
+    .stButton button, .stDownloadButton button {
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
     }
+
+    /* Fixed alignment for Desktop: Buttons won't stretch infinitely */
+    @media (min-width: 800px) {
+        .stButton button, .stDownloadButton button {
+            max-width: 250px;
+            display: block;
+            margin: 0 auto;
+        }
+    }
+
+    /* Color adjustments for readability in both modes */
+    .stExpander { border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 10px; }
+    
+    /* Center aligning the scan button area */
+    .element-container:has(button) { display: flex; justify-content: center; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. MANDATORY SEBI DISCLAIMER ---
+# --- 3. MANDATORY SEBI DISCLAIMER (RETAINED) ---
 st.error("⚠️ **LEGAL COMPLIANCE & DISCLOSURE**")
 with st.expander("📝 View Full SEBI Disclaimer & Risk Warning", expanded=True):
     st.markdown("""
-    <div style="background-color:#fff3cd; padding:15px; border-radius:10px; border:1px solid #ffc107;">
-        <h4 style="color:#856404; margin-top:0;">⚠️ NOT SEBI REGISTERED</h4>
-        <p style="color:#856404; font-size:0.9em;">
-            <b>ArthaSutra</b> is an automated analytical tool for educational research. We are <b>NOT SEBI registered</b> investment advisors. 
-            The 'Blue' conviction signals are based on historical backtesting. Stock market investments are subject to market risks. 
-            <b>We are not liable for any financial losses.</b>
+    <div style="background-color:rgba(255, 193, 7, 0.1); padding:15px; border-radius:10px; border:1px solid #ffc107;">
+        <h4 style="color:#ffc107; margin-top:0;">⚠️ NOT SEBI REGISTERED</h4>
+        <p style="font-size:0.95em; line-height:1.6;">
+            <b>ArthaSutra</b> is an automated analytical tool for educational research. We are <b>NOT SEBI registered</b> investment advisors or research analysts. 
+            The signals and attribution provided are based on historical algorithms.
+            <br><b>Risk Warning:</b> Stock market investments are subject to market risks. 
+            <b>We are not liable for any financial losses incurred.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -74,18 +93,20 @@ def run_arthasutra_engine(target_date):
                 risk = d['Close'] - d['Low']
                 if risk <= 0: continue
                 t2 = d['Close'] + (2 * risk)
-                status, jackpot_hit = "⏳ Active", False
+                status, jackpot_hit = "⏳ Running", False
                 future = data[data.index > t_ts]
                 if not future.empty:
                     for f_dt, f_row in future.iterrows():
                         if f_row['Low'] <= d['Low']: status = "🔴 SL Hit"; break
                         if f_row['High'] >= t2: status = "🟢 Jackpot Hit"; jackpot_hit = True; break
+                
+                v_ratio = d['Volume'] / d['Vol_MA']
                 results.append({
                     "Stock": ticker.replace(".NS",""),
                     "Category": "🔵 BLUE" if is_blue else "🟡 AMBER",
                     "Status": status, "Jackpot": jackpot_hit, "Entry": round(d['Close'], 2),
                     "Target": round(t2, 2), "RSI": round(d['RSI'], 1),
-                    "Analysis": f"🏆 Success: High Institutional Buying." if jackpot_hit else "⏳ Monitoring Price Action.",
+                    "Analysis": f"🏆 **Why it won?** Strong Institutional influx ({v_ratio:.1f}x Vol). Safety level ₹{round(d['Low'],2)} was protected." if jackpot_hit else f"📉 **Why it hit SL?** Bull Trap. Selling pressure overwhelmed buyers below ₹{round(d['Low'],2)}.",
                     "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
@@ -96,17 +117,15 @@ def run_arthasutra_engine(target_date):
 st.title("💹 ArthaSutra")
 st.caption("Institutional Strategy Auditor • Precision. Discipline. Prosperity.")
 
-# Input Section (Responsive Columns)
-col_in1, col_in2 = st.columns([1, 1])
-with col_in1:
+# Input Section (Centered for Laptop)
+_, col_input, _ = st.columns([1, 2, 1])
+with col_input:
     selected_date = st.date_input("Audit Date", datetime.now().date() - timedelta(days=2))
-with col_in2:
-    run_btn = st.button('🚀 Start Audit')
+    run_btn = st.button('🚀 Execute Strategy Audit', type="primary")
 
 if run_btn:
     df, adjusted_date = run_arthasutra_engine(selected_date)
     if not df.empty:
-        # Dashboard Cards (Metric Row)
         blue_df = df[df['Category'].str.contains("BLUE")]
         hits_blue = len(blue_df[blue_df['Jackpot'] == True])
         
@@ -116,26 +135,26 @@ if run_btn:
         m_col2.metric("🎯 Blue Accuracy", f"{round((hits_blue/len(blue_df))*100, 1) if len(blue_df) > 0 else 0}%")
         m_col3.metric("🔥 Total Jackpots", len(df[df['Jackpot'] == True]))
         
-        # Download Button
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("📂 Download Audit Report", data=csv, file_name=f"ArthaSutra_{adjusted_date}.csv", mime='text/csv')
+        # Download Section Centered
+        _, col_dl, _ = st.columns([1, 1, 1])
+        with col_dl:
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button("📂 Download Audit CSV", data=csv, file_name=f"ArthaSutra_{adjusted_date}.csv", mime='text/csv')
 
         st.divider()
-        
-        # Table for Laptop / List for Mobile
-        st.write("### 🔍 Live Signals")
+        st.write("### 🔍 Live Signals Tracker")
         st.dataframe(df.drop(columns=['Analysis', 'Jackpot']), use_container_width=True, hide_index=True, 
-                     column_config={"Chart": st.column_config.LinkColumn("Deep Link")})
+                     column_config={"Chart": st.column_config.LinkColumn("Chart Link")})
         
         st.divider()
-        st.write("### 💡 Deep Attribution")
+        st.write("### 💡 Deep Attribution (The 'Why')")
         for _, row in df.iterrows():
             with st.expander(f"{row['Stock']} | {row['Category']} | {row['Status']}"):
-                st.write(f"**Reasoning:** {row['Analysis']}")
-                st.write(f"**RSI:** {row['RSI']} | **Entry:** ₹{row['Entry']} | **Target:** ₹{row['Target']}")
-                st.link_button(f"Open {row['Stock']} Chart", row['Chart'])
+                st.markdown(row['Analysis'])
+                st.write(f"**RSI Momentum:** {row['RSI']} | **Entry Point:** ₹{row['Entry']} | **Jackpot Target:** ₹{row['Target']}")
+                st.link_button(f"Analyze {row['Stock']} Chart", row['Chart'])
     else:
-        st.warning("No setups detected for this period.")
+        st.warning("No Triple Bullish setups detected. Market may be sideways.")
 
 st.divider()
-st.caption("ArthaSutra v3.5 • Vectorized Backtest Engine")
+st.caption("ArthaSutra v4.0 • Hybrid Responsive Engine • SEBI Compliance Fixed")
