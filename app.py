@@ -12,64 +12,91 @@ st.set_page_config(
     page_icon="💹"
 )
 
-# --- 2. UI STYLING (The Production Card CSS) ---
+# --- 2. UI STYLING ---
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: #E0E0E0; }
+    .stError {
+        background-color: rgba(255, 75, 75, 0.05) !important;
+        color: #FF7E7E !important;
+        border: 1px solid rgba(255, 75, 75, 0.2) !important;
+        border-radius: 10px;
+    }
     [data-testid="stMetricValue"] { font-size: 2.2rem !important; font-weight: 800; color: #00FFA3 !important; }
+    .stButton button, .stDownloadButton button {
+        border-radius: 12px; padding: 0.6rem 2rem; font-weight: 700;
+        background-color: #262730; color: white; border: 1px solid #4B4B4B; transition: 0.3s;
+    }
+    .stButton button:hover { border-color: #00FFA3; color: #00FFA3; }
+    @media (min-width: 800px) {
+        .stButton button, .stDownloadButton button { max-width: 300px; display: block; margin: 0 auto; }
+    }
+    .stExpander { background-color: #1A1C23; border: 1px solid #333; border-radius: 12px; margin-bottom: 10px; }
     
-    .stock-card {
+    /* Custom Card Style */
+    .trade-card {
         background-color: #1A1C23;
         border: 1px solid #333;
-        border-radius: 15px;
-        padding: 20px;
-        margin-bottom: 25px;
-    }
-    .price-row {
-        display: flex; 
-        justify-content: space-between; 
-        margin-top: 15px; 
-        border-top: 1px solid #333; 
-        padding-top: 15px;
-        text-align: center;
-    }
-    .audit-text {
-        background: rgba(0, 255, 163, 0.05);
-        padding: 12px;
-        border-radius: 8px;
-        margin-top: 15px;
-        font-size: 0.9rem;
-        color: #BBB;
-        line-height: 1.6;
-        border-left: 3px solid #00FFA3;
-    }
-    .btn-link {
-        display: block;
-        width: 100%;
-        text-align: center;
-        background-color: #00FFA3;
-        color: #0E1117 !important;
-        padding: 12px;
-        margin-top: 15px;
-        border-radius: 10px;
-        text-decoration: none;
-        font-weight: 700;
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 10px;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # --- 3. LEGAL DISCLOSURE ---
 st.error("🔒 *LEGAL DISCLOSURE & COMPLIANCE*")
-with st.expander("📝 SEBI Non-Registration & Risk Warning", expanded=True):
-    st.markdown("Automated research tool. **Not SEBI Registered.** Trading involves capital risk.")
+with st.expander("📝 IMPORTANT: SEBI Non-Registration & Risk Warning", expanded=True):
+    st.markdown("""
+    <div style="background-color: rgba(255, 193, 7, 0.05); padding:15px; border-radius:12px; border:1px solid rgba(255, 193, 7, 0.3);">
+        <h4 style="color:#FFC107; margin-top:0;">⚠️ NOT SEBI REGISTERED</h4>
+        <p style="color:#CCCCCC; font-size:0.95em;">
+            <b>ArthaSutra</b> is an automated technical research engine. We are <b>NOT SEBI REGISTERED</b>. 
+            Signals are mathematical derivations. <b>Trading involves high risk.</b>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-# --- 4. ENGINE (Logic for 70-90% Accuracy) ---
-@st.cache_data(ttl=3600)
+# --- 4. TICKER LIST ---
+NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS']
+
+# --- 5. TECHNICAL VECTOR ENGINE ---
+def get_technical_audit(ticker, d, status, v_ratio, is_blue):
+    rsi = round(d['RSI'], 1)
+    bb_upper = d['SMA_20'] + (2 * d['STD_20'])
+    bb_pos = "Upper Band Breach" if d['Close'] > bb_upper else "Within BB Range"
+    vol_delta = f"{round((v_ratio - 1)*100, 1)}% Above Average" if v_ratio > 1 else "Below Average"
+
+    if status == "🟢 Jackpot Hit":
+        reason = f"""
+        *Audit Parameters (Convergence Hit):*
+        1. *Momentum Delta:* RSI at *{rsi}* confirmed high-velocity trend sustainment.
+        2. *Volatility Scaling:* Price tracked the *{bb_pos}*.
+        3. *Volume Confirmation:* Liquidity flow was *{vol_delta}*.
+        4. *RR Performance:* 1:2 Vector completed. Support at ₹{round(d['Low'],2)} held.
+        """
+    elif status == "🔴 SL Hit":
+        reason = f"""
+        *Audit Parameters (Invalidation):*
+        1. *Momentum Failure:* RSI stalled at *{rsi}*, signaling exhaustion.
+        2. *Volatility Trap:* Price failed to hold the *{bb_pos}*.
+        3. *Volume Divergence:* Liquidity flow of *{vol_delta}* was insufficient.
+        4. *Structural Breach:* Support floor at ₹{round(d['Low'],2)} compromised.
+        """
+    else:
+        reason = f"""
+        *Audit Parameters (In-Transit):*
+        1. *Momentum Index:* RSI current at *{rsi}*.
+        2. *BB Positioning:* Price is currently *{bb_pos}*.
+        3. *Volume Delta:* Flow is *{vol_delta}*.
+        4. *Safety Level:* Protective stop remains at ₹{round(d['Low'],2)}.
+        """
+    return reason
+
 def run_arthasutra_engine(target_date):
     results = []
-    NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENT.NS', 'ADANIPORTS.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BANKBARODA.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CIPLA.NS', 'COALINDIA.NS', 'DLF.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'GAIL.NS', 'GRASIM.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.CO', 'HINDALCO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'INDUSINDBK.NS', 'INFY.NS', 'ITC.NS', 'JSWSTEEL.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'M&M.NS', 'MARUTI.NS', 'NTPC.NS', 'NESTLEIND.NS', 'ONGC.NS', 'RELIANCE.NS', 'SBIN.NS', 'SUNPHARMA.NS', 'TATAMOTORS.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'ULTRACEMCO.NS', 'WIPRO.NS', 'ZOMATO.NS']
-    
-    prog = st.progress(0)
+    actual_date = None
+    progress_bar = st.progress(0)
     for i, ticker in enumerate(NIFTY_200):
         try:
             data = yf.download(ticker, start=target_date - timedelta(days=410), end=datetime.now(), auto_adjust=True, progress=False)
@@ -77,92 +104,96 @@ def run_arthasutra_engine(target_date):
             if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
             valid_dates = data.index[data.index.date <= target_date]
             if valid_dates.empty: continue
+            t_ts = valid_dates[-1]; actual_date = t_ts.date()
             
-            t_ts = valid_dates[-1]
-            data['SMA_44'] = data['Close'].rolling(44).mean()
-            data['SMA_200'] = data['Close'].rolling(200).mean()
-            data['Vol_MA'] = data['Volume'].rolling(20).mean()
+            data['SMA_44'] = data['Close'].rolling(window=44).mean()
+            data['SMA_200'] = data['Close'].rolling(window=200).mean()
+            data['SMA_20'] = data['Close'].rolling(window=20).mean()
+            data['STD_20'] = data['Close'].rolling(window=20).std()
+            data['Vol_MA'] = data['Volume'].rolling(window=20).mean()
             
-            delta = data['Close'].diff(); g = delta.where(delta > 0, 0).rolling(14).mean(); l = -delta.where(delta < 0, 0).rolling(14).mean()
-            data['RSI'] = 100 - (100 / (1 + (g / (l + 1e-10))))
+            delta = data['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            data['RSI'] = 100 - (100 / (1 + (gain / (loss + 1e-10))))
             
             d = data.loc[t_ts]
-            
-            # --- THE ACCURACY FILTERS ---
-            if d['Close'] > d['SMA_44'] > d['SMA_200'] and d['Close'] > d['Open']:
-                # Blue: RSI > 65 + Strong Vol (Key to 90% Hits)
-                is_blue = d['RSI'] > 65 and d['Volume'] > (d['Vol_MA'] * 1.2)
-                
+            if d['Close'] > d['SMA_44'] and d['SMA_44'] > d['SMA_200'] and d['Close'] > d['Open']:
+                is_blue = d['RSI'] > 65 and d['Volume'] > d['Vol_MA'] and (d['Close'] > d['SMA_200'] * 1.05)
                 risk = d['Close'] - d['Low']
+                if risk <= 0: continue
                 t2 = d['Close'] + (2 * risk)
                 
-                status, jackpot, days = "⏳ Running", False, "-"
+                status, jackpot_hit = "⏳ Running", False
                 future = data[data.index > t_ts]
                 if not future.empty:
-                    for idx, (f_dt, f_row) in enumerate(future.iterrows()):
-                        days = idx + 1
+                    for f_dt, f_row in future.iterrows():
                         if f_row['Low'] <= d['Low']: status = "🔴 SL Hit"; break
-                        if f_row['High'] >= t2: status = "🟢 Jackpot Hit"; jackpot = True; break
+                        if f_row['High'] >= t2: status = "🟢 Jackpot Hit"; jackpot_hit = True; break
                 
+                v_ratio = d['Volume'] / d['Vol_MA']
                 results.append({
-                    "Stock": ticker.replace(".NS",""), "Cat": "🔵 BLUE" if is_blue else "🟡 AMBER",
-                    "Status": status, "Jackpot": jackpot, "Entry": round(float(d['Close']), 2),
-                    "Target": round(float(t2), 2), "SL": round(float(d['Low']), 2), "Days": days,
-                    "RSI": round(float(d['RSI']), 1), "VolX": round(float(d['Volume']/d['Vol_MA']), 2)
+                    "Stock": ticker.replace(".NS",""),
+                    "Category": "🔵 BLUE" if is_blue else "🟡 AMBER",
+                    "Status": status, "Jackpot": jackpot_hit, "Entry": round(d['Close'], 2),
+                    "Target": round(t2, 2), "RSI": round(d['RSI'], 1),
+                    "Audit": get_technical_audit(ticker, d, status, v_ratio, is_blue),
+                    "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
-        prog.progress((i + 1) / len(NIFTY_200))
-    return pd.DataFrame(results), target_date
+        progress_bar.progress((i + 1) / len(NIFTY_200))
+    return pd.DataFrame(results), actual_date
 
-# --- 5. UI DISPLAY ---
+# --- 6. USER INTERFACE ---
 st.title("💹 ArthaSutra")
-selected_date = st.date_input("Audit Date", datetime.now().date() - timedelta(days=5))
+st.caption("Discipline • Prosperity • Consistency")
 
-if st.button('🚀 Execute Strategy Audit', use_container_width=True):
+_, col_input, _ = st.columns([1, 1.5, 1])
+with col_input:
+    selected_date = st.date_input("Audit Date", datetime.now().date() - timedelta(days=2))
+    run_btn = st.button('🚀 Execute Strategy Audit', use_container_width=True)
+
+if run_btn:
     df, adj_date = run_arthasutra_engine(selected_date)
     if not df.empty:
-        blue_df = df[df['Cat'] == "🔵 BLUE"]
-        accuracy = round((len(blue_df[blue_df['Jackpot'] == True]) / len(blue_df)) * 100, 1) if not blue_df.empty else 0
+        blue_df = df[df['Category'] == "🔵 BLUE"]
+        blue_hits = len(blue_df[blue_df['Jackpot'] == True])
         
-        st.write(f"### 📊 Report: {adj_date}")
-        m1, m2 = st.columns(2)
+        st.write(f"### 📊 Institutional Report: {adj_date}")
+        m1, m2, m3 = st.columns(3)
         m1.metric("🔵 Blue Signals", len(blue_df))
-        m2.metric("🎯 Blue Accuracy", f"{accuracy}%")
+        m2.metric("🎯 Blue Accuracy %", f"{round((blue_hits/len(blue_df))*100, 1) if not blue_df.empty else 0}%")
+        m3.metric("🔥 Total Jackpots", len(df[df['Jackpot'] == True]))
         
+        st.download_button("📂 Export Audit CSV", data=df.to_csv(index=False).encode('utf-8'), file_name=f"ArthaSutra_{adj_date}.csv", use_container_width=True)
+
         st.divider()
-
-        for _, row in df.iterrows():
-            clr = "#00FFA3" if "Jackpot" in row['Status'] else "#FF7E7E" if "SL" in row['Status'] else "#FFC107"
-            
-            card_html = f"""
-            <div class="stock-card">
-                <div style="display: flex; justify-content: space-between;">
-                    <b style="font-size: 1.5rem; color: white;">{row['Stock']}</b>
-                    <b style="color: {clr}; border: 1px solid {clr}; padding: 2px 10px; border-radius: 5px;">{row['Status']}</b>
-                </div>
-                <div style="color: #888; font-size: 0.8rem; margin-bottom: 10px;">{row['Cat']} | Exit: {row['Days']} Days</div>
-                
-                <div class="price-row">
-                    <div><small style="color:#888;">ENTRY</small><br><b>₹{row['Entry']}</b></div>
-                    <div><small style="color:#888;">SL</small><br><b style="color:#FF7E7E;">₹{row['SL']}</b></div>
-                    <div><small style="color:#888;">TARGET</small><br><b style="color:#00FFA3;">₹{row['Target']}</b></div>
-                </div>
-
-                <div class="audit-text">
-                    • <b>Volume Surge:</b> {row['VolX']}x relative to average.<br>
-                    • <b>Momentum:</b> RSI is {row['RSI']} (Bullish Convergence).<br>
-                    • <b>Trend:</b> Golden Slope above SMA 44/200.<br>
-                    • <b>Safety:</b> Structural low held at ₹{row['SL']}.
-                </div>
-
-                <a href="https://www.tradingview.com/chart/?symbol=NSE:{row['Stock']}" target="_blank" class="btn-link">Live Chart Audit 📈</a>
-            </div>
-            """
-            st.markdown(card_html, unsafe_allow_html=True)
+        st.write("### 🔍 Live Signals Tracker")
         
-        st.download_button("📥 Download Report", df.to_csv(index=False), f"ArthaSutra_{adj_date}.csv", use_container_width=True)
+        # DISPLAY AS CARDS INSTEAD OF TABLE
+        for _, row in df.iterrows():
+            with st.container():
+                # Signal Overview Card
+                st.markdown(f"""
+                <div class="trade-card">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="font-size: 1.2rem; font-weight: bold; color: #00FFA3;">{row['Stock']}</span>
+                        <span style="font-weight: bold;">{row['Status']}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 10px;">
+                        <span>Entry: <b>₹{row['Entry']}</b></span>
+                        <span>Target: <b>₹{row['Target']}</b></span>
+                        <span>{row['Category']}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Expandable Audit Logic (Kept from original)
+                with st.expander(f"View Technical Audit for {row['Stock']}"):
+                    st.markdown(row['Audit'])
+                    st.link_button(f"Analyze {row['Stock']} Chart", row['Chart'], use_container_width=True)
     else:
         st.warning("No Bullish Technical setups found.")
 
 st.divider()
-st.caption("ArthaSutra • Production Engine v4.7")
+st.caption("ArthaSutra • Discipline, Prosperity, Consistency • Advanced Vector Engine")
