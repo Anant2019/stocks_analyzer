@@ -187,4 +187,4 @@ if run_btn:
         st.warning("No Triple Bullish setups found.")
 
 st.divider()
-st.caption("ArthaSutra v4.5 • Powered by SMA 44-200 Vector Engine")
+st.caption("ArthaSutra v4.5")
