@@ -35,7 +35,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. MANDATORY SEBI DISCLAIMER (SOFTENED) ---
+# --- 3. MANDATORY SEBI DISCLAIMER ---
 st.error("🔒 **REGULATORY DISCLOSURE**")
 with st.expander("📝 View SEBI Compliance & Risk Terms", expanded=True):
     st.markdown("""
@@ -59,26 +59,38 @@ def calculate_rsi(series, period=14):
     return 100 - (100 / (1 + (gain / (loss + 1e-10))))
 
 def get_deep_analysis(ticker, d, status, jackpot_hit, v_ratio):
-    """Generates high-quality institutional reasoning."""
+    """Generates structured point-by-point institutional reasoning."""
     rsi_val = d['RSI']
     
     if status == "🟢 Jackpot Hit":
         reason = f"""
-        ✅ **Institutional Accumulation Detected:** Volume was **{v_ratio:.1f}x** the 20-day average, signaling big players entered. 
-        ✅ **Momentum Strength:** RSI was at **{rsi_val:.1f}**, showing the stock was in a 'High Velocity' zone. 
-        ✅ **Trend Discipline:** The price consistently stayed above the Signal Low (Safety Level) of ₹{round(d['Low'],2)}, confirming buyers were defending the level.
+        **Analysis Summary:**
+        
+        1. ✅ **Institutional Entry:** Volume was **{v_ratio:.1f}x** higher than normal, confirming "Big Money" participation.
+        
+        2. ✅ **Momentum Power:** RSI at **{rsi_val:.1f}** placed the stock in a strong bullish surge zone.
+        
+        3. ✅ **Safety Zone:** Buyers successfully defended the floor price of **₹{round(d['Low'],2)}**, allowing the 1:2 target to be reached.
         """
     elif status == "🔴 SL Hit":
         reason = f"""
-        ❌ **Bull Trap Warning:** Despite the breakout, the volume follow-through was weak ({v_ratio:.1f}x). 
-        ❌ **Exhaustion:** RSI may have been overextended or the overall market sentiment turned bearish. 
-        ❌ **Selling Pressure:** Institutional profit-booking pushed the price below the safety floor of ₹{round(d['Low'],2)}, triggering an exit to protect capital.
+        **Analysis Summary:**
+        
+        1. ❌ **Volume Mismatch:** Despite the setup, follow-through volume was only **{v_ratio:.1f}x**, which was insufficient to sustain the move.
+        
+        2. ❌ **Bull Trap:** High-level selling pressure (Profit Booking) overwhelmed new buyers at the peak.
+        
+        3. ❌ **Invalidation:** The price broke below the institutional support of **₹{round(d['Low'],2)}**, triggering a safety exit.
         """
     else:
         reason = f"""
-        ⏳ **Active Monitoring:** The setup is technically sound. Price is trending above 44 & 200 SMA. 
-        Entry: ₹{round(d['Close'],2)} | Safety: ₹{round(d['Low'],2)}. 
-        Institutional interest is present, awaiting the 1:2 Target hit.
+        **Analysis Summary:**
+        
+        1. ⏳ **Trend Integrity:** Stock is holding above the 44 and 200 SMA, keeping the bullish structure intact.
+        
+        2. ⏳ **Price Monitoring:** Entry was at **₹{round(d['Close'],2)}**. We are tracking institutional activity at current levels.
+        
+        3. ⏳ **Target Scope:** Potential for 1:2 reward remains open as long as **₹{round(d['Low'],2)}** is not breached.
         """
     return reason
 
@@ -132,7 +144,7 @@ def run_arthasutra_engine(target_date):
 
 # --- 6. TERMINAL UI ---
 st.title("💹 ArthaSutra")
-st.caption("Institutional Strategy Auditor • V5.0 Deep Logic")
+st.caption("Institutional Strategy Auditor • V5.1 Multi-Line Logic")
 
 _, col_input, _ = st.columns([1, 1.5, 1])
 with col_input:
@@ -165,10 +177,11 @@ if run_btn:
         for _, row in df.iterrows():
             with st.expander(f"{row['Stock']} | {row['Category']} | {row['Status']}"):
                 st.markdown(row['Deep_Reasoning'])
-                st.write(f"**Metrics:** RSI {row['RSI']} | Entry ₹{row['Entry']} | Target ₹{row['Target']}")
+                st.write("---")
+                st.write(f"**Quick Stats:** RSI {row['RSI']} | Entry ₹{row['Entry']} | Target ₹{row['Target']}")
                 st.link_button(f"Analyze Live Chart", row['Chart'], use_container_width=True)
     else:
         st.warning("No Triple Bullish setups found.")
 
 st.divider()
-st.caption("ArthaSutra v5.0 • Institutional Logic Core • Hybrid UI")
+st.caption("ArthaSutra v5.1 • Vectorized Multi-Line Analysis")
