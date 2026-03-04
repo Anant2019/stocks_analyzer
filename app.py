@@ -1,19 +1,17 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 
 # --- PAGE CONFIG & DISCLAIMER ---
-st.set_page_config(page_title="Nifty 200: 90% Accuracy Tracker", layout="wide")
+st.set_page_config(page_title="Nifty 200: Advanced Attribution Tracker", layout="wide")
 
 st.error("⚠️ **DISCLAIMER: FOR EDUCATIONAL PURPOSES ONLY**")
 st.markdown("""
-<div style="background-color:#fff3cd; padding:15px; border-radius:10px; border:1px solid #ffeeba;">
+<div style="background-color:#fff3cd; padding:15px; border-radius:10px; border:1px solid #ffeeba; margin-bottom: 20px;">
     <p style="color:#856404; font-weight:bold; margin-bottom:5px;">⚠️ NOT SEBI REGISTERED</p>
-    <p style="color:#856404; font-size:0.9em;">
-        This tool automatically adjusts to the last available trading day if a holiday is selected.
-        Trading involves risk. Please consult a professional advisor.
-    </p>
+    <p style="color:#856404; font-size:0.9em;">Analysis includes trade attribution (Why SL or Target hit). Past performance is not indicative of future results.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -24,8 +22,7 @@ NIFTY_200 = [
 
 st.title("🛡️ The 90% Accuracy Jackpot Filter")
 
-# --- DATE LOGIC ---
-target_date = st.date_input("Select Date", datetime.now().date() - timedelta(days=1))
+target_date = st.date_input("Select Date", datetime.now().date() - timedelta(days=2))
 
 def calculate_rsi(series, period=14):
     delta = series.diff()
@@ -33,63 +30,73 @@ def calculate_rsi(series, period=14):
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     return 100 - (100 / (1 + (gain / (loss + 1e-10))))
 
-def run_high_accuracy_backtest():
+def run_advanced_backtest():
     results = []
     actual_trading_date = None
     progress_bar = st.progress(0)
 
     for i, ticker in enumerate(NIFTY_200):
         try:
-            # Fetch extra data to ensure we find the last trading day
             data = yf.download(ticker, start=target_date - timedelta(days=410), end=datetime.now(), auto_adjust=True, progress=False)
             if len(data) < 201: continue
             if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
             
-            # --- HOLIDAY CORRECTION LOGIC ---
-            # Find the closest date in the index that is <= target_date
             available_dates = data.index[data.index.date <= target_date]
             if available_dates.empty: continue
             t_ts = available_dates[-1] 
-            actual_trading_date = t_ts.date() # Update UI with this date later
+            actual_trading_date = t_ts.date()
 
-            # Indicators
             data['SMA_44'] = data['Close'].rolling(window=44).mean()
             data['SMA_200'] = data['Close'].rolling(window=200).mean()
             data['RSI'] = calculate_rsi(data['Close'])
-            data['Vol_Avg'] = data['Volume'].rolling(window=5).mean()
+            data['Vol_Avg'] = data['Volume'].rolling(window=20).mean()
             
             day_data = data.loc[t_ts]
-            close, open_p, low_p = float(day_data['Close']), float(day_data['Open']), float(day_data['Low'])
+            close, open_p, low_p, high_p = float(day_data['Close']), float(day_data['Open']), float(day_data['Low']), float(day_data['High'])
             sma44, sma200, rsi = float(day_data['SMA_44']), float(day_data['SMA_200']), float(day_data['RSI'])
             vol, vol_avg = float(day_data['Volume']), float(day_data['Vol_Avg'])
 
+            # Strategy Signal Detection
             if close > sma44 and sma44 > sma200 and close > open_p:
-                is_blue = rsi > 65 and vol > vol_avg and (close > sma200 * 1.05)
+                is_blue = rsi > 65 and vol > (vol_avg * 1.5)
                 risk = close - low_p
                 if risk <= 0: continue
+                t1 = close + risk
                 t2 = close + (2 * risk)
                 
                 future_df = data[data.index > t_ts]
-                status, jackpot_hit = "⏳ Running", False
+                status, attribution, hit_1_1 = "⏳ Running", "N/A", False
                 
                 if not future_df.empty:
                     for f_dt, f_row in future_df.iterrows():
-                        h, l = float(f_row['High']), float(f_row['Low'])
-                        if l <= low_p: status = "🔴 SL Hit"; break
-                        if h >= t2: 
+                        curr_low = float(f_row['Low'])
+                        curr_high = float(f_row['High'])
+                        
+                        # Check 1:1 Target First
+                        if curr_high >= t1: hit_1_1 = True
+                        
+                        # Attribution Logic
+                        if curr_low <= low_p:
+                            status = "🔴 SL Hit"
+                            attribution = "Trend Reversal: Price fell below signal day's low before reaching 1:2."
+                            break
+                        if curr_high >= t2: 
                             status = "🔥 Jackpot Hit (1:2)"
-                            jackpot_hit = True
+                            attribution = "High Momentum: Institutional buying sustained the rally to 1:2 target."
                             break
                 else:
                     status = "🔵 LIVE BLUE" if is_blue else "🟡 LIVE AMBER"
+                    attribution = "Trade is still active in the current market session."
 
                 results.append({
                     "Stock": ticker.replace(".NS",""),
                     "Category": "🔵 BLUE" if is_blue else "🟡 AMBER",
                     "Status": status,
-                    "Jackpot": jackpot_hit,
+                    "Attribution": attribution,
+                    "Target 1:1": "✅ Hit" if hit_1_1 else "❌ No",
                     "Entry": round(close, 2),
-                    "Target (1:2)": round(t2, 2),
+                    "SL": round(low_p, 2),
+                    "Target 1:2": round(t2, 2),
                     "RSI": round(rsi, 1),
                     "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
@@ -98,39 +105,38 @@ def run_high_accuracy_backtest():
     
     return pd.DataFrame(results), actual_trading_date
 
-if st.button('🚀 Run Analysis'):
-    df, adjusted_date = run_high_accuracy_backtest()
+if st.button('🚀 Execute Deep Attribution Scan'):
+    df, adjusted_date = run_advanced_backtest()
     
     if not df.empty:
-        # Holiday Notification
-        if adjusted_date < target_date:
-            st.warning(f"📌 {target_date} was a Market Holiday. Showing analysis for the last trading day: **{adjusted_date}**")
-        
         blue_df = df[df['Category'].str.contains("BLUE")]
         total_blue = len(blue_df)
-        hits_blue = len(blue_df[blue_df['Jackpot'] == True])
+        hits_1_2 = len(blue_df[blue_df['Status'].str.contains("Jackpot")])
+        hits_1_1 = len(blue_df[blue_df['Target 1:1'] == "✅ Hit"])
         
         st.subheader(f"📊 Dashboard: {adjusted_date}")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("🔵 Total Blue Signals", total_blue)
-        c2.metric("🔥 Blue Jackpots", hits_blue)
-        c3.metric("🎯 Blue Accuracy", f"{round((hits_blue/total_blue)*100, 1) if total_blue > 0 else 0}%")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("🎯 1:1 Hit Rate (Blue)", f"{round((hits_1_1/total_blue)*100, 1) if total_blue > 0 else 0}%")
+        m2.metric("🔥 1:2 Jackpot Rate (Blue)", f"{round((hits_1_2/total_blue)*100, 1) if total_blue > 0 else 0}%")
+        m3.metric("🔵 Total Blue Signals", total_blue)
         
         st.divider()
-        st.write("### 🔍 Summary Table")
-        st.dataframe(df, column_config={"Chart": st.column_config.LinkColumn("Chart Link"), "Jackpot": st.column_config.CheckboxColumn("Tgt Met")}, hide_index=True, use_container_width=True)
+        st.write("### 🔍 Summary & Attribution")
+        st.dataframe(df, use_container_width=True, hide_index=True)
         
         st.divider()
-        st.write("### 💡 Individual Stock Analysis")
+        st.write("### 💡 Why did it Hit? (Deep Dive)")
         for _, row in df.iterrows():
-            with st.expander(f"Analysis: {row['Stock']} ({row['Category']})"):
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.write(f"**Trade Status:** {row['Status']}")
-                    st.write(f"**Entry Price:** ₹{row['Entry']}")
-                    st.write(f"**Profit Target:** ₹{row['Target (1:2)']}")
-                with col_b:
-                    st.write(f"**RSI Level:** {row['RSI']}")
-                    st.link_button(f"View {row['Stock']} Chart", row['Chart'])
+            with st.expander(f"{row['Stock']} - {row['Status']}"):
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    st.write(f"**Entry:** ₹{row['Entry']}")
+                    st.write(f"**SL:** ₹{row['SL']}")
+                    st.write(f"**1:1 Target:** ₹{round(row['Entry'] + (row['Entry']-row['SL']), 2)}")
+                    st.write(f"**1:2 Target:** ₹{row['Target 1:2']}")
+                    st.write(f"**Target 1:1 Met:** {row['Target 1:1']}")
+                with c2:
+                    st.info(f"**Quant Attribution:** {row['Attribution']}")
+                    st.link_button(f"Analyze {row['Stock']} Chart", row['Chart'])
     else:
-        st.warning("No signals found.")
+        st.warning("No signals found for this period.")
