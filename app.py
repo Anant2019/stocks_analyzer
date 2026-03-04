@@ -4,111 +4,195 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# --- 1. CONFIG & UI ---
-st.set_page_config(page_title="ArthaSutra | High-Accuracy", layout="wide")
-st.markdown("<h1 style='text-align: center; color: #00FFA3;'>💹 ArthaSutra Pro</h1>", unsafe_allow_html=True)
-st.error("🔒 LEGAL: NOT SEBI REGISTERED. Mathematical Research Tool.")
+# --- 1. PREMIUM PAGE CONFIG ---
+st.set_page_config(
+    page_title="ArthaSutra | Discipline, Prosperity, Consistency", 
+    layout="wide", 
+    initial_sidebar_state="collapsed",
+    page_icon="💹"
+)
 
-# --- 2. THE 90% ACCURACY LOGIC (RESTRICTED) ---
-@st.cache_data(ttl=3600)
-def execute_high_accuracy_scan(target_date):
-    results = []
-    NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENT.NS', 'ADANIPORTS.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BANKBARODA.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CIPLA.NS', 'COALINDIA.NS', 'DLF.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'GAIL.NS', 'GRASIM.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'INDUSINDBK.NS', 'INFY.NS', 'ITC.NS', 'JSWSTEEL.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'M&M.NS', 'MARUTI.NS', 'NTPC.NS', 'NESTLEIND.NS', 'ONGC.NS', 'POWERGRID.NS', 'RELIANCE.NS', 'SBILIFE.NS', 'SBIN.NS', 'SUNPHARMA.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'ULTRACEMCO.NS', 'WIPRO.NS', 'CHOLAFIN.NS', 'TVSMOTOR.NS', 'VEDL.NS', 'ZOMATO.NS']
+# --- 2. UI STYLING ---
+st.markdown("""
+    <style>
+    .stApp { background-color: #0E1117; color: #E0E0E0; }
+    .stError {
+        background-color: rgba(255, 75, 75, 0.05) !important;
+        color: #FF7E7E !important;
+        border: 1px solid rgba(255, 75, 75, 0.2) !important;
+        border-radius: 10px;
+    }
+    [data-testid="stMetricValue"] { font-size: 2.2rem !important; font-weight: 800; color: #00FFA3 !important; }
+    .stButton button, .stDownloadButton button {
+        border-radius: 12px; padding: 0.6rem 2rem; font-weight: 700;
+        background-color: #262730; color: white; border: 1px solid #4B4B4B; transition: 0.3s;
+        width: 100%;
+    }
+    .stButton button:hover { border-color: #00FFA3; color: #00FFA3; }
+    .stExpander { background-color: #1A1C23; border: 1px solid #333; border-radius: 12px; }
     
-    p_bar = st.progress(0, text="Hunting for 90% Probability Setups...")
+    /* Metrics Styling */
+    [data-testid="stMetric"] {
+        background-color: #1A1C23;
+        border: 1px solid #333;
+        padding: 15px;
+        border-radius: 12px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 3. LEGAL DISCLOSURE ---
+st.error("🔒 *LEGAL DISCLOSURE & COMPLIANCE*")
+with st.expander("📝 IMPORTANT: SEBI Non-Registration & Risk Warning", expanded=True):
+    st.markdown("""
+    <div style="background-color: rgba(255, 193, 7, 0.05); padding:15px; border-radius:12px; border:1px solid rgba(255, 193, 7, 0.3);">
+        <h4 style="color:#FFC107; margin-top:0;">⚠️ NOT SEBI REGISTERED</h4>
+        <p style="color:#CCCCCC; font-size:0.95em;">
+            <b>ArthaSutra</b> is an automated technical research engine. We are <b>NOT SEBI REGISTERED</b>. 
+            Signals are mathematical derivations. <b>Trading involves high risk.</b> All data is for backtesting and educational purposes.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# --- 4. TICKER LIST ---
+NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS']
+
+# --- 5. TECHNICAL VECTOR ENGINE ---
+def get_technical_audit(d, status, v_ratio):
+    """Generates precise technical parameter audit."""
+    rsi = round(d['RSI'], 1)
+    bb_upper = d['SMA_20'] + (2 * d['STD_20'])
+    bb_pos = "Upper Band Breach" if d['Close'] > bb_upper else "Within BB Range"
+    vol_delta = f"{round((v_ratio - 1)*100, 1)}% Above Average" if v_ratio > 1 else "Below Average"
+
+    if status == "🟢 Jackpot Hit":
+        reason = f"""
+        **Audit Parameters (Convergence Hit):**
+        1. **Momentum Delta:** RSI at `{rsi}` confirmed high-velocity trend sustainment.
+        2. **Volatility Scaling:** Price tracked `{bb_pos}`, signaling expansion.
+        3. **Volume Confirmation:** Liquidity flow was `{vol_delta}`, validating the breakout.
+        4. **RR Performance:** 1:2 Vector completed. Support at ₹{round(d['Low'],2)} held.
+        """
+    elif status == "🔴 SL Hit":
+        reason = f"""
+        **Audit Parameters (Invalidation):**
+        1. **Momentum Failure:** RSI stalled at `{rsi}`, signaling exhaustion.
+        2. **Volatility Trap:** Price failed to hold `{bb_pos}`, resulting in mean-reversion.
+        3. **Volume Divergence:** Liquidity of `{vol_delta}` was insufficient.
+        4. **Structural Breach:** Support floor at ₹{round(d['Low'],2)} compromised.
+        """
+    else:
+        reason = f"""
+        **Audit Parameters (In-Transit):**
+        1. **Momentum Index:** RSI current at `{rsi}`. Trend intact.
+        2. **BB Positioning:** Price is currently `{bb_pos}`.
+        3. **Volume Delta:** Flow is `{vol_delta}`.
+        4. **Safety Level:** Protective stop remains at ₹{round(d['Low'],2)}.
+        """
+    return reason
+
+@st.cache_data(ttl=3600)
+def run_arthasutra_engine(target_date):
+    results = []
+    actual_date = None
+    progress_bar = st.progress(0, text="Hunting for 90% Probability Setups...")
     
     for i, ticker in enumerate(NIFTY_200):
         try:
-            # Buffer for MAs
-            df = yf.download(ticker, start=target_date - timedelta(days=450), end=datetime.now(), auto_adjust=True, progress=False)
-            if len(df) < 201: continue
-            if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
-            
-            # Slice up to Audit Date
-            audit_data = df[df.index.date <= target_date]
-            if audit_data.empty: continue
-            t_ts = audit_data.index[-1]
+            data = yf.download(ticker, start=target_date - timedelta(days=410), end=datetime.now(), auto_adjust=True, progress=False)
+            if len(data) < 201: continue
+            if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
+            valid_dates = data.index[data.index.date <= target_date]
+            if valid_dates.empty: continue
+            t_ts = valid_dates[-1]; actual_date = t_ts.date()
             
             # Indicators
-            df['SMA44'] = df['Close'].rolling(window=44).mean()
-            df['SMA200'] = df['Close'].rolling(window=200).mean()
-            df['VolMA'] = df['Volume'].rolling(window=20).mean()
-            delta = df['Close'].diff(); g = delta.where(delta > 0, 0).rolling(14).mean(); l = -delta.where(delta < 0, 0).rolling(14).mean()
-            df['RSI'] = 100 - (100 / (1 + (g / (l + 1e-10))))
+            data['SMA_44'] = data['Close'].rolling(window=44).mean()
+            data['SMA_200'] = data['Close'].rolling(window=200).mean()
+            data['SMA_20'] = data['Close'].rolling(window=20).mean()
+            data['STD_20'] = data['Close'].rolling(window=20).std()
+            data['Vol_MA'] = data['Volume'].rolling(window=20).mean()
             
-            d = df.loc[t_ts]
+            delta = data['Close'].diff()
+            g = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            l = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            data['RSI'] = 100 - (100 / (1 + (g / (l + 1e-10))))
             
-            # --- THE ACCURACY FILTERS ---
-            # 1. Trend: SMA44 > SMA200
-            # 2. Setup: Price > SMA44 AND Close > Open (Bullish Intent)
-            # 3. Momentum: RSI > 66 (Crucial for 90% hits)
-            # 4. Institutional: Volume > 1.25x VolMA
-            if d['SMA44'] > d['SMA200'] and d['Close'] > d['SMA44'] and d['Close'] > d['Open']:
-                
-                is_blue = d['RSI'] > 66 and d['Volume'] > (d['VolMA'] * 1.25)
+            d = data.loc[t_ts]
+            
+            # --- THE 90% ACCURACY FILTER ---
+            if d['Close'] > d['SMA_44'] and d['SMA_44'] > d['SMA_200'] and d['Close'] > d['Open']:
+                # Blue: RSI > 65 + Strong Volume
+                is_blue = d['RSI'] > 65 and d['Volume'] > (d['Vol_MA'] * 1.25)
                 
                 risk = d['Close'] - d['Low']
-                target = d['Close'] + (2 * risk)
-                sl = d['Low']
+                if risk <= 0: continue
+                t2 = d['Close'] + (2 * risk)
                 
-                status, jackpot, days = "⏳ Running", False, "-"
-                post_audit = df[df.index > t_ts]
-                
-                if not post_audit.empty:
-                    for idx, (f_dt, f_row) in enumerate(post_audit.iterrows()):
+                status, jackpot_hit, days = "⏳ Running", False, "-"
+                future = data[data.index > t_ts]
+                if not future.empty:
+                    for idx, (f_dt, f_row) in enumerate(future.iterrows()):
                         days = idx + 1
-                        if f_row['Low'] <= sl: 
-                            status = "🔴 SL Hit"
-                            break
-                        if f_row['High'] >= target: 
-                            status = "🟢 Jackpot Hit"
-                            jackpot = True
-                            break
-
+                        if f_row['Low'] <= d['Low']: status = "🔴 SL Hit"; break
+                        if f_row['High'] >= t2: status = "🟢 Jackpot Hit"; jackpot_hit = True; break
+                
+                v_ratio = d['Volume'] / d['Vol_MA']
                 results.append({
-                    "Stock": ticker.replace(".NS",""), "Type": "🔵 BLUE" if is_blue else "🟡 AMBER",
-                    "Status": status, "Jackpot": jackpot, "Entry": round(float(d['Close']), 2),
-                    "Target": round(float(target), 2), "SL": round(float(sl), 2), "Days": days,
-                    "RSI": round(float(d['RSI']), 1), "VolX": round(float(d['Volume']/d['VolMA']), 2)
+                    "Stock": ticker.replace(".NS",""),
+                    "Category": "🔵 BLUE" if is_blue else "🟡 AMBER",
+                    "Status": status, "Jackpot": jackpot_hit, "Entry": round(d['Close'], 2),
+                    "Target": round(t2, 2), "SL": round(d['Low'], 2), "Days": days,
+                    "RSI": round(d['RSI'], 1), 
+                    "Audit": get_technical_audit(d, status, v_ratio),
+                    "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
-        p_bar.progress((i + 1) / len(NIFTY_200))
-    
-    p_bar.empty()
-    return pd.DataFrame(results), target_date
+        progress_bar.progress((i + 1) / len(NIFTY_200))
+    progress_bar.empty()
+    return pd.DataFrame(results), actual_date
 
-# --- 3. UI DISPLAY ---
-date_input = st.date_input("Audit Day", datetime.now().date() - timedelta(days=10))
+# --- 6. USER INTERFACE ---
+st.title("💹 ArthaSutra")
+st.caption("Discipline • Prosperity • Consistency")
 
-if st.button("🚀 Run ArthaSutra High-Accuracy Audit"):
-    results_df, final_date = execute_high_accuracy_scan(date_input)
-    
-    if not results_df.empty:
-        blue_only = results_df[results_df['Type'] == "🔵 BLUE"]
-        accuracy = round((len(blue_only[blue_only['Jackpot']==True])/len(blue_only))*100, 1) if not blue_only.empty else 0
+_, col_input, _ = st.columns([1, 1.5, 1])
+with col_input:
+    selected_date = st.date_input("Audit Date", datetime.now().date() - timedelta(days=5))
+    run_btn = st.button('🚀 Execute Strategy Audit', use_container_width=True)
+
+if run_btn:
+    df, adj_date = run_arthasutra_engine(selected_date)
+    if not df.empty:
+        blue_df = df[df['Category'] == "🔵 BLUE"]
+        blue_hits = len(blue_df[blue_df['Jackpot'] == True])
         
-        st.write(f"### 📊 Final Audit: {final_date}")
-        c1, c2 = st.columns(2)
-        c1.metric("🔵 High-Conviction Signals", len(blue_only))
-        c2.metric("🎯 Blue Accuracy", f"{accuracy}%")
+        st.write(f"### 📊 Institutional Report: {adj_date}")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("🔵 Blue Signals", len(blue_df))
+        m2.metric("🎯 Blue Accuracy %", f"{round((blue_hits/len(blue_df))*100, 1) if not blue_df.empty else 0}%")
+        m3.metric("🔥 Total Jackpots", len(df[df['Jackpot'] == True]))
+        
+        col_dl1, col_dl2, col_dl3 = st.columns([1, 1, 1])
+        with col_dl2:
+            st.download_button("📂 Export Audit CSV", data=df.to_csv(index=False).encode('utf-8'), file_name=f"ArthaSutra_{adj_date}.csv")
+
+        st.divider()
+        st.write("### 🔍 Live Signals Tracker")
+        # Displaying main results table
+        st.dataframe(df.drop(columns=['Audit', 'Jackpot']), use_container_width=True, hide_index=True)
         
         st.divider()
+        st.write("### 💡 Quantitative Strategy Audit")
         
-        for _, row in results_df.iterrows():
-            with st.container(border=True):
-                st.write(f"### {row['Stock']} | {row['Type']}")
-                st.write(f"**Status:** {row['Status']} (Time: {row['Days']} Days)")
-                
-                # Accuracy Price Points
-                p1, p2, p3 = st.columns(3)
-                p1.info(f"Entry: ₹{row['Entry']}")
-                p2.error(f"SL: ₹{row['SL']}")
-                p3.success(f"Target: ₹{row['Target']}")
-                
-                with st.expander("Technical Audit Logs"):
-                    st.write(f"• **RSI Momentum:** {row['RSI']} (Target > 66)")
-                    st.write(f"• **Volume Surge:** {row['VolX']}x (Target > 1.25x)")
-                    st.write(f"• **Golden Trend:** SMA 44 is above SMA 200.")
-                    st.link_button("Open TradingView", f"https://www.tradingview.com/chart/?symbol=NSE:{row['Stock']}")
+        # Grid layout for audit cards
+        for _, row in df.iterrows():
+            with st.expander(f"{row['Stock']} | {row['Category']} | {row['Status']}"):
+                st.markdown(row['Audit'])
+                st.write(f"**Timeline:** Action took {row['Days']} sessions.")
+                st.link_button(f"Analyze {row['Stock']} Chart 📈", row['Chart'], use_container_width=True)
     else:
-        st.warning("The market did not produce any High-Accuracy (90%) setups on this date.")
+        st.warning("No Bullish Technical setups found for this date.")
+
+st.divider()
+st.caption("ArthaSutra • Discipline, Prosperity, Consistency • Advanced Vector Engine v4.5")
