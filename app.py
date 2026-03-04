@@ -147,7 +147,7 @@ def run_arthasutra_engine(target_date):
 
 # --- 6. UI RENDER ---
 st.title("💹 ArthaSutra")
-st.caption("Institutional Strategy Auditor • V5.2 Dynamic Real-Time Reasoning")
+st.caption("• Discipline,Prosperity and Consistency")
 
 _, col_input, _ = st.columns([1, 1.5, 1])
 with col_input:
