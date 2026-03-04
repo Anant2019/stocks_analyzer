@@ -6,13 +6,13 @@ from datetime import datetime, timedelta
 
 # --- 1. PREMIUM PAGE CONFIG ---
 st.set_page_config(
-    page_title="ArthaSutra | Strategy Auditor", 
+    page_title="ArthaSutra | Discipline, Prosperity, Consistency", 
     layout="wide", 
     initial_sidebar_state="collapsed",
     page_icon="💹"
 )
 
-# --- 2. UI STYLING (DARK TERMINAL) ---
+# --- 2. UI STYLING ---
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: #E0E0E0; }
@@ -35,15 +35,16 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. SEBI DISCLAIMER ---
-st.error("🔒 **REGULATORY DISCLOSURE**")
-with st.expander("📝 View SEBI Compliance & Risk Terms", expanded=True):
+# --- 3. MANDATORY LEGAL DISCLOSURE ---
+st.error("🔒 **LEGAL DISCLOSURE & COMPLIANCE**")
+with st.expander("📝 IMPORTANT: SEBI Non-Registration & Risk Warning", expanded=True):
     st.markdown("""
     <div style="background-color: rgba(255, 193, 7, 0.05); padding:15px; border-radius:12px; border:1px solid rgba(255, 193, 7, 0.3);">
         <h4 style="color:#FFC107; margin-top:0;">⚠️ NOT SEBI REGISTERED</h4>
-        <p style="color:#CCCCCC; font-size:0.95em;">
-            <b>ArthaSutra</b> is an educational research algorithm. Signals are mathematical derivations. 
-            Consult a registered advisor before investing.
+        <p style="color:#CCCCCC; font-size:0.95em; line-height:1.6;">
+            <b>ArthaSutra</b> is an automated technical research engine for educational purposes. 
+            We are <b>NOT SEBI REGISTERED</b>. Signals are mathematical derivations, not buy/sell tips. 
+            <b>Trading involves high risk.</b> We are not liable for financial losses.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -51,51 +52,46 @@ with st.expander("📝 View SEBI Compliance & Risk Terms", expanded=True):
 # --- 4. TICKER LIST ---
 NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS']
 
-# --- 5. DYNAMIC REASONING ENGINE ---
+# --- 5. CORE LOGIC ENGINE ---
 def calculate_rsi(series, period=14):
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    delta = series.diff(); gain = (delta.where(delta > 0, 0)).rolling(window=period).mean(); loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     return 100 - (100 / (1 + (gain / (loss + 1e-10))))
 
-def get_dynamic_analysis(ticker, d, status, v_ratio, is_blue):
-    """Generates unique real-time reasoning based on live calculations."""
-    rsi_val = round(d['RSI'], 1)
-    sl_level = round(d['Low'], 2)
-    vol_strength = "Extraordinary" if v_ratio > 2.0 else "Healthy"
-    category_type = "High-Conviction BLUE" if is_blue else "Standard AMBER"
+def generate_easy_reasoning(d, status, risk, t1, t2):
+    """Generates human-friendly, high-quality reasoning about RR hits/misses."""
+    sl_price = round(d['Low'], 2)
+    entry_price = round(d['Close'], 2)
     
     if status == "🟢 Jackpot Hit":
-        reason = f"""
-        **Dynamic Trade Audit:**
+        return f"""
+        **Why this trade was a Winner?**
         
-        1. ✅ **Institutional Surge:** This {category_type} signal saw {vol_strength} volume flow (**{v_ratio:.1f}x** average), indicating strong institutional participation.
+        1. 🎯 **Entry Strategy:** The stock was in a 'Super Trend' (Price > 44 SMA > 200 SMA). This provided strong "Buyer Support" from the start.
         
-        2. ✅ **Momentum Trigger:** RSI hit **{rsi_val}** during the signal period, propelling the price toward the 1:2 reward target.
+        2. ⚡ **The 1:1 Milestone:** The price quickly moved up by ₹{round(risk,2)}, reaching ₹{round(t1,2)}. At this point, the trade became "Stress-Free" for disciplined traders.
         
-        3. ✅ **Validation:** The price action successfully defended the calculated floor of **₹{sl_level}**, proving that bulls were in total control.
+        3. 🏆 **The 1:2 Jackpot:** Strong buying volume pushed it all the way to ₹{round(t2,2)}. Buyers successfully defended the floor of ₹{sl_price}, never allowing sellers to take control.
         """
     elif status == "🔴 SL Hit":
-        reason = f"""
-        **Dynamic Trade Audit:**
+        return f"""
+        **Why the Stop-Loss (SL) was triggered?**
         
-        1. ❌ **Volume Exhaustion:** The trade lacked follow-through despite the {vol_strength} initial volume (**{v_ratio:.1f}x**), suggesting a temporary 'Bull Trap'.
+        1. 📉 **The Battle Lost:** Despite a good setup at ₹{entry_price}, the price couldn't find enough buyers to reach even the 1:1 target.
         
-        2. ❌ **Momentum Shift:** RSI at **{rsi_val}** failed to sustain the breakout as institutional profit-booking intensified.
+        2. ❌ **Support Failure:** The "Safety Floor" at ₹{sl_price} was broken. In technical terms, the trend reversed, and exiting here saved you from a much bigger loss.
         
-        3. ❌ **Exit Trigger:** Price breached the critical support zone of **₹{sl_level}**. To preserve capital, the algorithm closed the position.
+        3. 💡 **Lesson:** Even with a perfect setup, market volatility can break support. Discipline means accepting this small SL to stay alive for the next Jackpot.
         """
     else:
-        reason = f"""
-        **Dynamic Trade Audit:**
+        return f"""
+        **Current Trade Status:**
         
-        1. ⏳ **Ongoing Trend:** Price is holding the 44-SMA structure with RSI at **{rsi_val}**. 
+        1. ⏳ **In Progress:** The setup is active. We entered at ₹{entry_price} with a target of ₹{round(t2,2)}.
         
-        2. ⏳ **Real-time Monitoring:** We are observing {vol_strength} volume levels (**{v_ratio:.1f}x**) as the trade approaches the target.
+        2. 🛡️ **Safety Guard:** As long as the stock stays above ₹{sl_price}, the "Discipline" is to hold. 
         
-        3. ⏳ **Risk Status:** The trade is active. Safety level is locked at **₹{sl_level}**.
+        3. 🚀 **Next Milestone:** We are waiting for the 1:1 level (₹{round(t1,2)}) to reduce our risk.
         """
-    return reason
 
 def run_arthasutra_engine(target_date):
     results = []
@@ -108,8 +104,7 @@ def run_arthasutra_engine(target_date):
             if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
             valid_dates = data.index[data.index.date <= target_date]
             if valid_dates.empty: continue
-            t_ts = valid_dates[-1]
-            actual_date = t_ts.date()
+            t_ts = valid_dates[-1]; actual_date = t_ts.date()
             
             data['SMA_44'] = data['Close'].rolling(window=44).mean()
             data['SMA_200'] = data['Close'].rolling(window=200).mean()
@@ -121,68 +116,66 @@ def run_arthasutra_engine(target_date):
                 is_blue = d['RSI'] > 65 and d['Volume'] > d['Vol_MA'] and (d['Close'] > d['SMA_200'] * 1.05)
                 risk = d['Close'] - d['Low']
                 if risk <= 0: continue
+                t1 = d['Close'] + risk
                 t2 = d['Close'] + (2 * risk)
                 
-                status, jackpot_hit = "⏳ Running", False
+                status = "⏳ Running"
                 future = data[data.index > t_ts]
                 if not future.empty:
                     for f_dt, f_row in future.iterrows():
                         if f_row['Low'] <= d['Low']: status = "🔴 SL Hit"; break
-                        if f_row['High'] >= t2: status = "🟢 Jackpot Hit"; jackpot_hit = True; break
+                        if f_row['High'] >= t2: status = "🟢 Jackpot Hit"; break
                 
-                v_ratio = d['Volume'] / d['Vol_MA']
-                analysis = get_dynamic_analysis(ticker, d, status, v_ratio, is_blue)
+                analysis = generate_easy_reasoning(d, status, risk, t1, t2)
                 
                 results.append({
                     "Stock": ticker.replace(".NS",""),
                     "Category": "🔵 BLUE" if is_blue else "🟡 AMBER",
-                    "Status": status, "Jackpot": jackpot_hit, "Entry": round(d['Close'], 2),
-                    "Target": round(t2, 2), "RSI": round(d['RSI'], 1),
-                    "RealTime_Audit": analysis,
-                    "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
+                    "Status": status, "Entry": round(d['Close'], 2),
+                    "Target 1:2": round(t2, 2), "RSI": round(d['RSI'], 1),
+                    "Human_Reasoning": analysis, "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
         progress_bar.progress((i + 1) / len(NIFTY_200))
     return pd.DataFrame(results), actual_date
 
-# --- 6. UI RENDER ---
+# --- 6. USER INTERFACE ---
 st.title("💹 ArthaSutra")
-st.caption("• Discipline,Prosperity and Consistency")
+st.caption("Discipline • Prosperity • Consistency")
 
 _, col_input, _ = st.columns([1, 1.5, 1])
 with col_input:
-    selected_date = st.date_input("Audit Date", datetime.now().date() - timedelta(days=2))
-    run_btn = st.button('🚀 Execute Real-Time Scan', use_container_width=True)
+    selected_date = st.date_input("Select Audit Date", datetime.now().date() - timedelta(days=2))
+    run_btn = st.button('🚀 Execute Strategy Audit', use_container_width=True)
 
 if run_btn:
-    df, adjusted_date = run_arthasutra_engine(selected_date)
+    df, adj_date = run_arthasutra_engine(selected_date)
     if not df.empty:
         blue_df = df[df['Category'].str.contains("BLUE")]
-        hits_blue = len(blue_df[blue_df['Jackpot'] == True])
+        hits = len(df[df['Status'] == "🟢 Jackpot Hit"])
         
-        st.write(f"### 📊 Institutional Audit: {adjusted_date}")
+        st.write(f"### 📊 Report Summary: {adj_date}")
         m1, m2, m3 = st.columns(3)
         m1.metric("🔵 High Conviction", len(blue_df))
-        m2.metric("🎯 Win Rate", f"{round((hits_blue/len(blue_df))*100, 1) if len(blue_df) > 0 else 0}%")
-        m3.metric("🔥 Total Jackpots", len(df[df['Jackpot'] == True]))
+        m2.metric("🎯 Total Accuracy", f"{round((hits/len(df))*100, 1) if len(df) > 0 else 0}%")
+        m3.metric("🔥 Jackpot Hits", hits)
         
         _, col_dl, _ = st.columns([1, 1, 1])
         with col_dl:
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📂 Export Audit CSV", data=csv, file_name=f"ArthaSutra_{adjusted_date}.csv", mime='text/csv')
+            st.download_button("📂 Export Audit CSV", data=df.to_csv(index=False).encode('utf-8'), file_name=f"ArthaSutra_{adj_date}.csv", use_container_width=True)
 
         st.divider()
         st.write("### 🔍 Live Signals Tracker")
-        st.dataframe(df.drop(columns=['RealTime_Audit', 'Jackpot']), use_container_width=True, hide_index=True)
+        st.dataframe(df.drop(columns=['Human_Reasoning']), use_container_width=True, hide_index=True)
         
         st.divider()
-        st.write("### 💡 Individual Trade Audit (Dynamic Reasons)")
+        st.write("### 💡 Strategy Audit (Easy Language Reasoning)")
         for _, row in df.iterrows():
             with st.expander(f"{row['Stock']} | {row['Category']} | {row['Status']}"):
-                st.markdown(row['RealTime_Audit'])
-                st.link_button(f"Analyze {row['Stock']} Chart", row['Chart'], use_container_width=True)
+                st.markdown(row['Human_Reasoning'])
+                st.link_button(f"View {row['Stock']} Chart", row['Chart'], use_container_width=True)
     else:
-        st.warning("No Triple Bullish setups found.")
+        st.warning("No Bullish setups detected.")
 
 st.divider()
-st.caption("ArthaSutra v5.2 • Dynamic Logic Engine • No Prior Code Missed")
+st.caption("ArthaSutra • Discipline, Prosperity, Consistency • Advanced Reasoning Engine")
