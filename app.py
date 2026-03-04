@@ -5,15 +5,15 @@ import numpy as np
 from datetime import datetime, timedelta
 
 # --- 1. SEBI COMPLIANCE & PAGE CONFIG ---
-st.set_page_config(page_title="Nifty 200: Institutional Reasoner", layout="wide")
+st.set_page_config(page_title="Nifty 200: Strategy Auditor", layout="wide")
 
 st.error("⚠️ **DISCLAIMER: FOR EDUCATIONAL PURPOSES ONLY**")
 st.markdown("""
 <div style="background-color:#fff3cd; padding:15px; border-radius:10px; border:1px solid #ffeeba; margin-bottom: 25px;">
     <p style="color:#856404; font-weight:bold; margin-bottom:5px;">⚠️ NOT SEBI REGISTERED</p>
     <p style="color:#856404; font-size:0.9em;">
-        I am not a SEBI registered research analyst or investment advisor. This tool is for educational purposes only. 
-        <b>Trading involves high risk.</b> Please consult a certified advisor. We are not responsible for any losses.
+        I am not a SEBI registered research analyst. This tool is for learning how the 'Triple Bullish' strategy works. 
+        <b>Stock market investments are subject to market risks.</b> Never trade with money you cannot afford to lose.
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -24,17 +24,17 @@ NIFTY_200 = [
 ]
 
 # --- 3. INPUTS ---
-st.title("🛡️ The 90% Accuracy Jackpot Filter")
-target_date = st.date_input("Analysis Date", datetime.now().date() - timedelta(days=2))
+st.title("🛡️ Beginner-Friendly Jackpot Auditor")
+target_date = st.date_input("Select Analysis Date", datetime.now().date() - timedelta(days=2))
 
-# --- 4. ENGINE ---
+# --- 4. CALCULATION ENGINE ---
 def calculate_rsi(series, period=14):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     return 100 - (100 / (1 + (gain / (loss + 1e-10))))
 
-def run_full_engine():
+def run_beginner_engine():
     results = []
     actual_date = None
     progress_bar = st.progress(0)
@@ -56,37 +56,42 @@ def run_full_engine():
             data['RSI'] = calculate_rsi(data['Close'])
 
             d = data.loc[t_ts]
+            # Triple Bullish Check
             if d['Close'] > d['SMA_44'] and d['SMA_44'] > d['SMA_200'] and d['Close'] > d['Open']:
-                # 90% Probability Filter (Blue Dot Logic)
-                is_blue = d['RSI'] > 65 and d['Volume'] > d['Vol_MA'] and (d['Close'] > d['SMA_200'] * 1.05)
                 
+                is_blue = d['RSI'] > 65 and d['Volume'] > d['Vol_MA'] and (d['Close'] > d['SMA_200'] * 1.05)
                 risk = d['Close'] - d['Low']
                 if risk <= 0: continue
                 t2 = d['Close'] + (2 * risk)
                 
-                status = "⏳ Active"
+                status = "⏳ Running"
                 jackpot_hit = False
                 future = data[data.index > t_ts]
+                
                 if not future.empty:
                     for f_dt, f_row in future.iterrows():
                         if f_row['Low'] <= d['Low']: status = "🔴 SL Hit"; break
-                        if f_row['High'] >= t2: 
-                            status = "🔥 Jackpot Hit"; 
-                            jackpot_hit = True; 
-                            break
+                        if f_row['High'] >= t2: status = "🟢 Jackpot Hit"; jackpot_hit = True; break
                 
-                # Reasoning Generator
-                reason = f"✅ **Conviction:** Vol {round(d['Volume']/d['Vol_MA'],1)}x avg. RSI {round(d['RSI'],1)}." if jackpot_hit else "❌ **Rejection:** Trend failed to sustain momentum."
-                if status == "⏳ Active": reason = "🔄 **Monitoring:** Setup valid, awaiting target/SL."
+                # --- BEGINNER FRIENDLY ANALYSIS ---
+                v_ratio = d['Volume'] / d['Vol_MA']
+                setup_desc = f"Stock is trending above both 44 and 200 day averages. "
+                
+                if status == "🟢 Jackpot Hit":
+                    analysis = f"🏆 **Why it won?**\n\n1. **High Power:** Volume was {v_ratio:.1f}x higher than normal—meaning big players (Institutions) were buying.\n2. **Strong Trend:** The stock stayed above its safety level (Low of the day) and moved fast toward the target."
+                elif status == "🔴 SL Hit":
+                    analysis = f"📉 **Why it failed?**\n\n1. **Bull Trap:** Even though the setup looked good, sellers became stronger than buyers at the top.\n2. **Weak Follow-through:** There wasn't enough 'new money' to push the price higher, so it fell back to hit the Stop Loss."
+                else:
+                    analysis = f"⏳ **Current Situation:**\n\n- The setup is solid. We are waiting to see if buyers can keep the price above ₹{round(d['Low'], 2)}. If it stays above this, the target of ₹{round(t2, 2)} is possible."
 
                 results.append({
                     "Stock": ticker.replace(".NS",""),
-                    "Category": "🔵 BLUE (High)" if is_blue else "🟡 AMBER (Normal)",
+                    "Category": "🔵 BLUE (High Prob)" if is_blue else "🟡 AMBER (Normal)",
                     "Status": status,
                     "Jackpot": jackpot_hit,
                     "Entry": round(d['Close'], 2),
-                    "Target 1:2": round(t2, 2),
-                    "Reasoning": reason,
+                    "Target (1:2)": round(t2, 2),
+                    "Beginner_Analysis": analysis,
                     "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
@@ -94,33 +99,35 @@ def run_full_engine():
     return pd.DataFrame(results), actual_date
 
 # --- 5. UI DISPLAY ---
-if st.button('🚀 Execute Deep Scan'):
-    df, adjusted_date = run_full_engine()
+if st.button('🚀 Start Deep Scan'):
+    df, adjusted_date = run_beginner_engine()
     if not df.empty:
-        # DASHBOARD METRICS (RE-ADDED)
+        # DASHBOARD METRICS
         blue_df = df[df['Category'].str.contains("BLUE")]
         total_blue = len(blue_df)
         hits_blue = len(blue_df[blue_df['Jackpot'] == True])
         
-        st.subheader(f"📊 Market Dashboard: {adjusted_date}")
+        st.subheader(f"📊 Market Summary: {adjusted_date}")
         c1, c2, c3 = st.columns(3)
-        c1.metric("🔵 Total Blue Signals", total_blue)
+        c1.metric("🔵 High Conviction (Blue)", total_blue)
         c2.metric("🎯 Blue Success Rate", f"{round((hits_blue/total_blue)*100, 1) if total_blue > 0 else 0}%")
         c3.metric("🔥 Total Jackpots", len(df[df['Jackpot'] == True]))
         
         st.divider()
-        st.write("### 🔍 Summary Table")
-        st.dataframe(df.drop(columns=['Reasoning', 'Jackpot']), use_container_width=True, hide_index=True, column_config={"Chart": st.column_config.LinkColumn("Chart Link")})
+        st.write("### 🔍 Trade List")
+        st.dataframe(df.drop(columns=['Beginner_Analysis', 'Jackpot']), use_container_width=True, hide_index=True, 
+                     column_config={"Chart": st.column_config.LinkColumn("Chart Link")})
         
         st.divider()
-        st.write("### 💡 Individual Attribution (The 'Why')")
+        st.write("### 💡 Simple Analysis (Learn why trades move)")
         for _, row in df.iterrows():
-            with st.expander(f"{row['Stock']} - {row['Category']} - {row['Status']}"):
-                st.info(row['Reasoning'])
-                st.write(f"**Target 1:2 Price:** ₹{row['Target 1:2']}")
-                st.link_button("Open TradingView", row['Chart'])
+            with st.expander(f"Analysis for {row['Stock']} ({row['Status']})"):
+                st.markdown(row['Beginner_Analysis'])
+                st.write(f"---")
+                st.write(f"**Safety Level (SL):** ₹{row['Entry'] - (row['Target (1:2)'] - row['Entry'])/2}")
+                st.link_button(f"See {row['Stock']} Chart", row['Chart'])
     else:
-        st.warning("No Triple Bullish setups found.")
+        st.warning("No Triple Bullish setups found. Markets might be sideways.")
 
 st.divider()
-st.info("Institutional Grade Vectorized Engine | Logic: Pine Script V5 Parity")
+st.info("Logic: Swing Triple Bullish 44-200. Built for clarity and accuracy.")
