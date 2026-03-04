@@ -12,16 +12,10 @@ st.set_page_config(
     page_icon="💹"
 )
 
-# --- 2. UI STYLING (Mobile-Optimized & Integrated) ---
+# --- 2. UI STYLING (Mobile-First & Interactive) ---
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: #E0E0E0; }
-    .stError {
-        background-color: rgba(255, 75, 75, 0.05) !important;
-        color: #FF7E7E !important;
-        border: 1px solid rgba(255, 75, 75, 0.2) !important;
-        border-radius: 10px;
-    }
     [data-testid="stMetricValue"] { font-size: 1.8rem !important; font-weight: 800; color: #00FFA3 !important; }
     
     /* Integrated Action Card */
@@ -42,18 +36,34 @@ st.markdown("""
         float: right;
         border: 1px solid;
     }
-    .analysis-box {
-        background-color: #262730;
-        padding: 15px;
-        border-radius: 10px;
+    
+    /* View More / Details Styling */
+    details {
         margin-top: 15px;
-        font-size: 0.9rem;
-        border-left: 3px solid #00FFA3;
+        padding: 10px;
+        background: #262730;
+        border-radius: 8px;
+        cursor: pointer;
     }
-    .stButton button {
-        border-radius: 12px; padding: 0.6rem; font-weight: 700;
-        background-color: #00FFA3; color: #0E1117; border: none; width: 100%;
-        margin-top: 10px;
+    summary {
+        font-weight: 700;
+        color: #00FFA3;
+        list-style: none;
+        font-size: 0.9rem;
+    }
+    summary::-webkit-details-marker { display: none; }
+    
+    .audit-point {
+        font-size: 0.85rem;
+        margin-top: 8px;
+        padding-left: 5px;
+        border-left: 2px solid #444;
+        color: #BBB;
+    }
+    
+    .stDownloadButton button {
+        border-radius: 12px; background-color: #00FFA3 !important; color: #0E1117 !important;
+        font-weight: 700; width: 100%; border: none;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -91,7 +101,6 @@ def run_arthasutra_engine(target_date):
             data['SMA_44'] = data['Close'].rolling(window=44).mean()
             data['SMA_200'] = data['Close'].rolling(window=200).mean()
             data['SMA_20'] = data['Close'].rolling(window=20).mean()
-            data['STD_20'] = data['Close'].rolling(window=20).std()
             data['Vol_MA'] = data['Volume'].rolling(window=20).mean()
             delta = data['Close'].diff(); gain = (delta.where(delta > 0, 0)).rolling(window=14).mean(); loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
             data['RSI'] = 100 - (100 / (1 + (gain / (loss + 1e-10))))
@@ -110,15 +119,21 @@ def run_arthasutra_engine(target_date):
                         if f_row['High'] >= t2: status = "🟢 Jackpot Hit"; jackpot_hit = True; break
                         if f_row['High'] >= t1: status = "🟡 Partial Hit"
                 
-                # Logic for In-Card Analysis
-                analysis = f"Momentum RSI is {round(d['RSI'],1)}. Volume is {round(d['Volume']/d['Vol_MA'], 1)}x of average. SMA 44/200 structure is solid."
+                # Multi-Point Quantitative Analysis
+                v_ratio = round(d['Volume'] / d['Vol_MA'], 2)
+                audit_points = [
+                    f"🔥 **Institutional Demand:** Volume surge of {v_ratio}x validates smart money entry.",
+                    f"📈 **Trend Alignment:** Price positioned above SMA 44 & 200 (Golden Slope).",
+                    f"⚡ **Velocity Check:** RSI at {round(d['RSI'],1)} indicates breakout strength without exhaustion.",
+                    f"🛡️ **Structure:** Bullish candle closed above opening range; structural floor at ₹{round(d['Low'],2)}."
+                ]
                 
                 results.append({
                     "Stock": ticker.replace(".NS",""),
                     "Category": "🔵 BLUE" if is_blue else "🟡 AMBER",
                     "Status": status, "Jackpot": jackpot_hit, "Entry": round(d['Close'], 2),
                     "Target": round(t2, 2), "SL": round(d['Low'], 2), "Days": days_taken,
-                    "Analysis": analysis, "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
+                    "AuditPoints": audit_points, "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
         progress_bar.progress((i + 1) / len(NIFTY_200))
@@ -136,32 +151,45 @@ if run_btn:
     if not df.empty:
         blue_df = df[df['Category'] == "🔵 BLUE"]
         st.write(f"### 📊 Audit: {adj_date}")
+        
         m1, m2 = st.columns(2)
         m1.metric("🔵 Blue Signals", len(blue_df))
         m2.metric("🎯 Jackpot Accuracy %", f"{round((len(blue_df[blue_df['Jackpot'] == True])/len(blue_df))*100, 1) if not blue_df.empty else 0}%")
 
+        # DOWNLOAD BUTTON
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download PDF/CSV Audit Report", data=csv, file_name=f"ArthaSutra_Audit_{adj_date}.csv")
+
         st.divider()
-        # INTEGRATED MOBILE-FIRST CARDS
+        # MOBILE-FIRST INTERACTIVE CARDS
         for _, row in df.iterrows():
             badge_color = "#00FFA3" if "Hit" in row['Status'] else "#FF7E7E" if "SL" in row['Status'] else "#FFC107"
+            
+            # Formulating the Analysis Points for HTML
+            points_html = "".join([f'<div class="audit-point">{p}</div>' for p in row['AuditPoints']])
+            
             st.markdown(f"""
             <div class="stock-card">
                 <span class="status-badge" style="color: {badge_color}; border-color: {badge_color};">
                     {row['Status']}
                 </span>
                 <h3 style="margin:0;">{row['Stock']}</h3>
-                <p style="margin:5px 0; color:#888; font-size:0.85rem;">{row['Category']} | Time to Event: {row['Days']} Days</p>
+                <p style="margin:5px 0; color:#888; font-size:0.85rem;">{row['Category']} | Exit in: {row['Days']} Days</p>
+                
                 <div style="display: flex; justify-content: space-between; margin-top:15px; border-top:1px solid #333; padding-top:10px;">
                     <div><small style="color:#888;">ENTRY</small><br><b>₹{row['Entry']}</b></div>
                     <div><small style="color:#888;">SL</small><br><b style="color:#FF7E7E;">₹{row['SL']}</b></div>
                     <div><small style="color:#888;">TARGET</small><br><b style="color:#00FFA3;">₹{row['Target']}</b></div>
                 </div>
-                <div class="analysis-box">
-                    <strong>Deep Analysis:</strong><br>{row['Analysis']}
-                </div>
+
+                <details>
+                    <summary>View More Analysis ➕</summary>
+                    {points_html}
+                </details>
+
                 <a href="{row['Chart']}" target="_blank" style="text-decoration:none;">
                     <button style="width:100%; border-radius:12px; padding:10px; font-weight:700; background-color:#262730; color:white; border:1px solid #444; margin-top:12px; cursor:pointer;">
-                        View Live Chart 📈
+                        Live Chart Audit 📈
                     </button>
                 </a>
             </div>
@@ -170,4 +198,4 @@ if run_btn:
         st.warning("No Bullish Technical setups found.")
 
 st.divider()
-st.caption("ArthaSutra • Integrated Mobile Cards • No Click Audit")
+st.caption("ArthaSutra • 4-Point High Conviction Audit • Mobile UI v2.5")
