@@ -21,7 +21,6 @@ st.markdown("""
     .stError { background-color: rgba(255, 75, 75, 0.05) !important; color: #FF7E7E !important; border-radius: 12px; }
     [data-testid="stMetricValue"] { font-size: 1.8rem !important; color: #00FFA3 !important; font-weight: 800; }
     
-    /* Card Design */
     .stock-card {
         background-color: #1A1C23;
         border: 1px solid #333;
@@ -34,17 +33,28 @@ st.markdown("""
     .status-green { color: #00FFA3; font-weight: bold; }
     .status-red { color: #FF4B4B; font-weight: bold; }
     
-    /* Centered Buttons */
     .stButton button { border-radius: 12px; font-weight: 700; background-color: #262730; transition: 0.3s; }
     .stButton button:hover { border-color: #00FFA3; color: #00FFA3; }
     @media (min-width: 800px) { .stButton button { max-width: 300px; display: block; margin: 0 auto; } }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. LEGAL & BRANDING ---
-st.error("🔒 **LEGAL DISCLOSURE**")
-with st.expander("📝 SEBI Compliance", expanded=False):
-    st.markdown("We are **NOT SEBI REGISTERED**. All signals are technical derivations. Trading involves risk.")
+# --- 3. REFINED LEGAL COMPLIANCE (INDIAN LAW) ---
+st.error("⚖️ **STATUTORY DISCLOSURE & DISCLAIMER**")
+with st.expander("📝 Mandatory Compliance Information", expanded=False):
+    st.markdown("""
+    <div style="background-color: rgba(255, 193, 7, 0.05); padding:15px; border-radius:12px; border:1px solid rgba(255, 193, 7, 0.3);">
+        <p style="color:#CCCCCC; font-size:0.85em; line-height:1.6;">
+            <b>NOTICE AS PER SEBI (INVESTMENT ADVISERS) REGULATIONS, 2013:</b><br>
+            ArthaSutra is a mathematical research tool and a software algorithm. We are <b>NOT SEBI REGISTERED</b> investment advisors, research analysts, or stock brokers. 
+            The signals generated (Blue/Amber) are based on historical technical data and do not constitute financial advice or buy/sell recommendations.
+            <br><br>
+            <b>RISK WARNING:</b> Equity trading is subject to market risks. Past performance is not indicative of future results. 
+            We do not guarantee any profits or accuracy. Please consult a SEBI-registered professional before investing. 
+            <b>Any reliance on this tool is at your own risk.</b>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.title("💹 ArthaSutra")
 st.caption("Discipline • Prosperity • Consistency")
@@ -53,29 +63,29 @@ st.caption("Discipline • Prosperity • Consistency")
 with st.container():
     col1, col2 = st.columns(2)
     with col1:
-        risk_input = st.number_input("Max Risk per Trade (₹)", value=1000, step=500)
+        rr_ratio = st.slider("Select Reward/Risk Ratio", 1.0, 5.0, 2.0, 0.5, help="For maximum accuracy, we suggest 1:2.")
     with col2:
         target_date = st.date_input("Audit Date", datetime.now().date() - timedelta(days=2))
     run_btn = st.button('🚀 EXECUTE STRATEGY AUDIT')
 
 # --- 5. CORE LOGIC ENGINE ---
-def run_full_engine(risk_amt, t_date):
-    NIFTY_200 = ['RELIANCE.NS', 'TCS.NS', 'INFY.NS', 'HDFCBANK.NS', 'ICICIBANK.NS', 'BHARTIARTL.NS', 'SBIN.NS', 'ITC.NS', 'KOTAKBANK.NS', 'LT.NS', 'AXISBANK.NS', 'ASIANPAINT.NS', 'MARUTI.NS', 'TITAN.NS', 'BAJFINANCE.NS', 'WIPRO.NS', 'HCLTECH.NS', 'SUNPHARMA.NS', 'TATAMOTORS.NS', 'NTPC.NS'] # Truncated for demo speed
+def run_full_engine(ratio, t_date):
+    # Expanded list for the strategy audit
+    TICKERS = ['ABB.NS', 'ACC.NS', 'ADANIENT.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AXISBANK.NS', 'BAJFINANCE.NS', 'BHARTIARTL.NS', 'BPCL.NS', 'CIPLA.NS', 'COALINDIA.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'GRASIM.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'INDUSINDBK.NS', 'INFY.NS', 'ITC.NS', 'JSWSTEEL.NS', 'KOTAKBANK.NS', 'LT.NS', 'M&M.NS', 'MARUTI.NS', 'NESTLEIND.NS', 'NTPC.NS', 'ONGC.NS', 'POWERGRID.NS', 'RELIANCE.NS', 'SBIN.NS', 'SUNPHARMA.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'ULTRACEMCO.NS', 'WIPRO.NS']
     
     results = []
     start_lookback = t_date - timedelta(days=400)
     
-    for ticker in NIFTY_200:
+    for ticker in TICKERS:
         data = fetch_data(ticker, start_lookback)
         if data is None or len(data) < 201: continue
         if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
         
-        # Indicators
         data['SMA_44'] = data['Close'].rolling(window=44).mean()
         data['SMA_200'] = data['Close'].rolling(window=200).mean()
         data['Vol_MA'] = data['Volume'].rolling(window=20).mean()
         
-        # RSI
+        # RSI 14
         delta = data['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -85,28 +95,28 @@ def run_full_engine(risk_amt, t_date):
         if valid_days.empty: continue
         d = data.loc[valid_days[-1]]
         
-        # TRIPLE BULLISH LOGIC
+        # STRATEGY: 44 SMA > 200 SMA + Price > 44 SMA
         if d['Close'] > d['SMA_44'] and d['SMA_44'] > d['SMA_200'] and d['Close'] > d['Open']:
             is_blue = d['RSI'] > 65 and d['Volume'] > d['Vol_MA'] and (d['Close'] > d['SMA_200'] * 1.05)
-            risk = d['Close'] - d['Low']
-            if risk <= 0: continue
-            target = d['Close'] + (2 * risk)
+            risk_points = d['Close'] - d['Low']
+            if risk_points <= 0: continue
             
-            # Backtest status
+            target_price = d['Close'] + (risk_points * ratio)
+            
+            # Outcome Tracking
             status, jackpot_hit = "⏳ Running", False
             future = data[data.index > valid_days[-1]]
             if not future.empty:
                 for f_dt, f_row in future.iterrows():
                     if f_row['Low'] <= d['Low']: status = "🔴 SL Hit"; break
-                    if f_row['High'] >= target: status = "🟢 Jackpot Hit"; jackpot_hit = True; break
+                    if f_row['High'] >= target_price: status = f"🟢 Jackpot Hit (1:{ratio})"; jackpot_hit = True; break
 
-            # TECHNICAL AUDIT TEXT
             v_ratio = d['Volume'] / d['Vol_MA']
             audit = f"""
-            1. **Mean Reversion:** Price holding structure above 44-SMA confluence.
-            2. **Momentum:** RSI at {round(d['RSI'],1)} confirms strong velocity.
-            3. **Volume:** Flow is {round(v_ratio,1)}x above 20-day average liquidity.
-            4. **Structure:** Support floor confirmed at ₹{round(d['Low'],2)}.
+            • **Trend:** Structural bullishness confirmed (Price > SMA44 > SMA200).
+            • **Momentum:** RSI at {round(d['RSI'],1)} indicates high-velocity zone.
+            • **Liquidity:** Relative volume at {round(v_ratio,1)}x average flow.
+            • **Validation:** Signal floor at ₹{round(d['Low'],2)} defended during period.
             """
             
             results.append({
@@ -114,8 +124,7 @@ def run_full_engine(risk_amt, t_date):
                 "Category": "BLUE" if is_blue else "AMBER",
                 "Price": round(d['Close'], 2),
                 "SL": round(d['Low'], 2),
-                "Target": round(target, 2),
-                "Qty": int(risk_amt / risk),
+                "Target": round(target_price, 2),
                 "Status": status,
                 "Jackpot": jackpot_hit,
                 "Audit": audit
@@ -124,16 +133,17 @@ def run_full_engine(risk_amt, t_date):
 
 # --- 6. DISPLAY ---
 if run_btn:
-    data_list = run_full_engine(risk_input, target_date)
+    data_list = run_full_engine(rr_ratio, target_date)
     if data_list:
         df = pd.DataFrame(data_list)
         blue_df = df[df['Category'] == "BLUE"]
         blue_accuracy = (len(blue_df[blue_df['Jackpot'] == True]) / len(blue_df)) * 100 if not blue_df.empty else 0
         
+        st.write(f"### 📊 Report for {target_date} (Ratio 1:{rr_ratio})")
         m1, m2, m3 = st.columns(3)
         m1.metric("🔵 BLUE Signals", len(blue_df))
         m2.metric("🎯 BLUE Accuracy", f"{round(blue_accuracy, 1)}%")
-        m3.metric("🔥 Total Jackpots", len(df[df['Status'] == "🟢 Jackpot Hit"]))
+        m3.metric("🔥 Total Jackpots", len(df[df['Jackpot'] == True]))
 
         st.divider()
         for item in data_list:
@@ -150,18 +160,17 @@ if run_btn:
                 <hr style="margin: 10px 0; border-color: #333;">
                 <div style="display: flex; justify-content: space-between; text-align: center;">
                     <div><p style="margin:0; color: #888; font-size: 0.7rem;">ENTRY</p><b>₹{item['Price']}</b></div>
-                    <div><p style="margin:0; color: #888; font-size: 0.7rem;">SL</p><b>₹{item['SL']}</b></div>
-                    <div><p style="margin:0; color: #888; font-size: 0.7rem;">TARGET</p><b>₹{item['Target']}</b></div>
+                    <div><p style="margin:0; color: #888; font-size: 0.7rem;">SL (1:0)</p><b>₹{item['SL']}</b></div>
+                    <div><p style="margin:0; color: #888; font-size: 0.7rem;">TARGET (1:{rr_ratio})</p><b>₹{item['Target']}</b></div>
                 </div>
                 <div style="margin-top: 15px; padding: 10px; background: #262730; border-radius: 8px;">
-                    <p style="margin:0; color: #00FFA3; font-size: 0.85rem;"><b>Position Size: Buy {item['Qty']} Units</b></p>
-                    <p style="margin:5px 0 0 0; color: #AAA; font-size: 0.8rem; line-height: 1.4;">{item['Audit']}</p>
+                    <p style="margin:0; color: #AAA; font-size: 0.8rem; line-height: 1.5; white-space: pre-line;">{item['Audit']}</p>
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            st.link_button(f"📈 Analyze {item['Symbol']} Chart", f"https://www.tradingview.com/chart/?symbol=NSE:{item['Symbol']}")
+            st.link_button(f"📈 Analyze Chart", f"https://www.tradingview.com/chart/?symbol=NSE:{item['Symbol']}")
     else:
-        st.warning("No Strategy Setups detected for this period.")
+        st.warning("No Bullish setups detected for the selected parameters.")
 
 st.divider()
-st.caption("ArthaSutra v7.0 • No Logic Compromised • Mobile Responsive")
+st.caption("ArthaSutra • Legal Compliance Enabled • 1:2 Dynamic Ratio Engine")
