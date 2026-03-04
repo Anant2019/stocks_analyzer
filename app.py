@@ -26,26 +26,27 @@ st.markdown("""
     .stButton button, .stDownloadButton button {
         border-radius: 12px; padding: 0.6rem 2rem; font-weight: 700;
         background-color: #262730; color: white; border: 1px solid #4B4B4B; transition: 0.3s;
+        width: 100% !important;
     }
-    .stButton button:hover { border-color: #00FFA3; color: #00FFA3; }
-    @media (min-width: 800px) {
-        .stButton button, .stDownloadButton button { max-width: 300px; display: block; margin: 0 auto; }
-    }
+    .stButton button:hover, .stDownloadButton button:hover { border-color: #00FFA3; color: #00FFA3; }
+    
     .stExpander { background-color: #1A1C23; border: 1px solid #333; border-radius: 12px; margin-bottom: 10px; }
     
     .trade-card {
         background-color: #1A1C23;
         border: 1px solid #333;
         border-radius: 12px;
-        padding: 15px;
-        margin-bottom: 10px;
+        padding: 18px;
+        margin-bottom: 5px;
+        border-left: 5px solid #333;
     }
     .duration-badge {
         background-color: rgba(0, 255, 163, 0.1);
         color: #00FFA3;
-        padding: 2px 8px;
-        border-radius: 5px;
-        font-size: 0.8rem;
+        padding: 3px 10px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 600;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -137,7 +138,6 @@ def run_arthasutra_engine(target_date):
                 future = data[data.index > t_ts]
                 
                 if not future.empty:
-                    # Logic to count trading days until target or SL
                     for count, (f_dt, f_row) in enumerate(future.iterrows(), 1):
                         if f_row['Low'] <= d['Low']: 
                             status = "🔴 SL Hit"
@@ -183,36 +183,48 @@ if run_btn:
         m2.metric("🎯 Blue Accuracy %", f"{round((blue_hits/len(blue_df))*100, 1) if not blue_df.empty else 0}%")
         m3.metric("🔥 Total Jackpots", len(df[df['Jackpot'] == True]))
         
+        # DOWNLOAD CSV BUTTON (CENTERED)
         st.divider()
+        _, col_dl, _ = st.columns([1, 1.2, 1])
+        with col_dl:
+            csv_data = df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📂 Download Full CSV Report",
+                data=csv_data,
+                file_name=f"ArthaSutra_Audit_{adj_date}.csv",
+                mime='text/csv',
+                use_container_width=True
+            )
+        st.divider()
+
         st.write("### 🔍 Live Signals Tracker")
-        
         for _, row in df.iterrows():
+            # Card Border Color based on Status
+            border_clr = "#00FFA3" if row['Jackpot'] else "#FF7E7E" if 'SL' in row['Status'] else "#333"
+            
             with st.container():
-                # Signal Overview Card with Duration
                 st.markdown(f"""
-                <div class="trade-card">
+                <div class="trade-card" style="border-left-color: {border_clr};">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 1.2rem; font-weight: bold; color: #00FFA3;">{row['Stock']}</span>
+                        <span style="font-size: 1.3rem; font-weight: bold; color: #00FFA3;">{row['Stock']}</span>
                         <div style="text-align: right;">
-                            <span style="font-weight: bold; color: {'#00FFA3' if row['Jackpot'] else '#FF7E7E' if 'SL' in row['Status'] else '#E0E0E0'};">{row['Status']}</span><br>
+                            <span style="font-weight: bold; color: {border_clr}; font-size: 1.1rem;">{row['Status']}</span><br>
                             <span class="duration-badge">{row['Days']} Days to Hit</span>
                         </div>
                     </div>
-                    <div style="display: flex; justify-content: space-between; margin-top: 10px;">
-                        <span>Entry: <b>₹{row['Entry']}</b></span>
-                        <span>Target: <b>₹{row['Target']}</b></span>
+                    <div style="display: flex; justify-content: space-between; margin-top: 15px;">
+                        <span>Entry: <b style="color:white;">₹{row['Entry']}</b></span>
+                        <span>Target: <b style="color:#00FFA3;">₹{row['Target']}</b></span>
                         <span>{row['Category']}</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                with st.expander(f"View Technical Audit for {row['Stock']}"):
+                with st.expander(f"Deep Audit Analysis for {row['Stock']}"):
                     st.markdown(row['Audit'])
-                    st.link_button(f"Analyze {row['Stock']} Chart", row['Chart'], use_container_width=True)
-        
-        st.download_button("📂 Export Audit CSV", data=df.to_csv(index=False).encode('utf-8'), file_name=f"ArthaSutra_{adj_date}.csv", use_container_width=True)
+                    st.link_button(f"Analyze {row['Stock']} Chart 📈", row['Chart'], use_container_width=True)
     else:
-        st.warning("No Bullish Technical setups found.")
+        st.warning("No Bullish Technical setups found for the selected date.")
 
 st.divider()
 st.caption("ArthaSutra • Discipline, Prosperity, Consistency • Advanced Vector Engine")
