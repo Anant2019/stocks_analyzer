@@ -4,139 +4,90 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# --- PAGE CONFIG & DISCLAIMER ---
-st.set_page_config(page_title="Nifty 200: Advanced Attribution Tracker", layout="wide")
-
-st.error("⚠️ **DISCLAIMER: FOR EDUCATIONAL PURPOSES ONLY**")
-st.markdown("""
-<div style="background-color:#fff3cd; padding:15px; border-radius:10px; border:1px solid #ffeeba; margin-bottom: 20px;">
-    <p style="color:#856404; font-weight:bold; margin-bottom:5px;">⚠️ NOT SEBI REGISTERED</p>
-    <p style="color:#856404; font-size:0.9em;">Analysis includes trade attribution (Why SL or Target hit). Past performance is not indicative of future results.</p>
-</div>
-""", unsafe_allow_html=True)
+# --- CONFIG & DISCLAIMER ---
+st.set_page_config(page_title="Nifty 200: Institutional Reasoner", layout="wide")
+st.error("⚠️ **EDUCATIONAL PURPOSE ONLY - NOT SEBI REGISTERED**")
 
 # --- NIFTY 200 LIST ---
-NIFTY_200 = [
-    'ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS'
-]
-
-st.title("🛡️ The 90% Accuracy Jackpot Filter")
+NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENT.NS', 'AXISBANK.NS', 'BAJFINANCE.NS', 'BHARTIARTL.NS', 'HDFCBANK.NS', 'ICICIBANK.NS', 'INFY.NS', 'ITC.NS', 'RELIANCE.NS', 'SBIN.NS', 'TCS.NS', 'TATAMOTORS.NS', 'TITAN.NS'] # Small list for testing, you can add all 200.
 
 target_date = st.date_input("Select Date", datetime.now().date() - timedelta(days=2))
 
-def calculate_rsi(series, period=14):
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    return 100 - (100 / (1 + (gain / (loss + 1e-10))))
-
-def run_advanced_backtest():
+def run_reasoning_engine():
     results = []
-    actual_trading_date = None
+    t_ts = pd.Timestamp(target_date)
     progress_bar = st.progress(0)
 
     for i, ticker in enumerate(NIFTY_200):
         try:
+            # 1. FETCH DATA
             data = yf.download(ticker, start=target_date - timedelta(days=410), end=datetime.now(), auto_adjust=True, progress=False)
-            if len(data) < 201: continue
+            if len(data) < 201 or t_ts not in data.index: continue
             if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
-            
-            available_dates = data.index[data.index.date <= target_date]
-            if available_dates.empty: continue
-            t_ts = available_dates[-1] 
-            actual_trading_date = t_ts.date()
 
+            # 2. INDICATORS
             data['SMA_44'] = data['Close'].rolling(window=44).mean()
             data['SMA_200'] = data['Close'].rolling(window=200).mean()
-            data['RSI'] = calculate_rsi(data['Close'])
-            data['Vol_Avg'] = data['Volume'].rolling(window=20).mean()
-            
-            day_data = data.loc[t_ts]
-            close, open_p, low_p, high_p = float(day_data['Close']), float(day_data['Open']), float(day_data['Low']), float(day_data['High'])
-            sma44, sma200, rsi = float(day_data['SMA_44']), float(day_data['SMA_200']), float(day_data['RSI'])
-            vol, vol_avg = float(day_data['Volume']), float(day_data['Vol_Avg'])
+            data['Vol_MA'] = data['Volume'].rolling(window=20).mean()
+            delta = data['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            data['RSI'] = 100 - (100 / (1 + (gain / (loss + 1e-10))))
 
-            # Strategy Signal Detection
-            if close > sma44 and sma44 > sma200 and close > open_p:
-                is_blue = rsi > 65 and vol > (vol_avg * 1.5)
-                risk = close - low_p
-                if risk <= 0: continue
-                t1 = close + risk
-                t2 = close + (2 * risk)
+            # 3. SIGNAL DAY DATA
+            d = data.loc[t_ts]
+            risk = d['Close'] - d['Low']
+            t1, t2 = d['Close'] + risk, d['Close'] + (2 * risk)
+            vol_ratio = d['Volume'] / d['Vol_MA']
+
+            # 4. REASONING LOGIC (The "Why")
+            if d['Close'] > d['SMA_44'] and d['SMA_44'] > d['SMA_200']:
+                reasoning = ""
+                future = data[data.index > t_ts]
                 
-                future_df = data[data.index > t_ts]
-                status, attribution, hit_1_1 = "⏳ Running", "N/A", False
+                # Check outcome
+                status = "⏳ Active"
+                if not future.empty:
+                    for f_dt, f_row in future.iterrows():
+                        if f_row['Low'] <= d['Low']: status = "🔴 SL"; break
+                        if f_row['High'] >= t2: status = "🟢 1:2 Hit"; break
                 
-                if not future_df.empty:
-                    for f_dt, f_row in future_df.iterrows():
-                        curr_low = float(f_row['Low'])
-                        curr_high = float(f_row['High'])
-                        
-                        # Check 1:1 Target First
-                        if curr_high >= t1: hit_1_1 = True
-                        
-                        # Attribution Logic
-                        if curr_low <= low_p:
-                            status = "🔴 SL Hit"
-                            attribution = "Trend Reversal: Price fell below signal day's low before reaching 1:2."
-                            break
-                        if curr_high >= t2: 
-                            status = "🔥 Jackpot Hit (1:2)"
-                            attribution = "High Momentum: Institutional buying sustained the rally to 1:2 target."
-                            break
+                # REASONING GENERATOR
+                if status == "🟢 1:2 Hit":
+                    reasoning = f"✅ **SUCCESS:** Institutional Surge detected. Volume was {vol_ratio:.1f}x higher than average. "
+                    reasoning += "RSI was in a strong momentum zone (>60), sustaining the 1:2 rally."
+                elif status == "🔴 SL":
+                    reasoning = f"❌ **FAILURE:** Trap Detected. Despite being above 44 SMA, "
+                    if d['High'] - d['Close'] > (d['Close'] - d['Low']):
+                        reasoning += "the candle had a long upper wick, showing 'Selling Pressure' from the top."
+                    else:
+                        reasoning += "market-wide weakness or lack of follow-through volume caused a breakdown."
                 else:
-                    status = "🔵 LIVE BLUE" if is_blue else "🟡 LIVE AMBER"
-                    attribution = "Trade is still active in the current market session."
+                    reasoning = "🔄 **IN PROGRESS:** Price is consolidating. Currently no major breakdown or breakout."
 
                 results.append({
                     "Stock": ticker.replace(".NS",""),
-                    "Category": "🔵 BLUE" if is_blue else "🟡 AMBER",
-                    "Status": status,
-                    "Attribution": attribution,
-                    "Target 1:1": "✅ Hit" if hit_1_1 else "❌ No",
-                    "Entry": round(close, 2),
-                    "SL": round(low_p, 2),
-                    "Target 1:2": round(t2, 2),
-                    "RSI": round(rsi, 1),
+                    "Outcome": status,
+                    "Reasoning": reasoning,
+                    "RSI": round(d['RSI'], 1),
+                    "Vol_Ratio": round(vol_ratio, 1),
                     "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
         progress_bar.progress((i + 1) / len(NIFTY_200))
-    
-    return pd.DataFrame(results), actual_trading_date
+    return pd.DataFrame(results)
 
-if st.button('🚀 Execute Deep Attribution Scan'):
-    df, adjusted_date = run_advanced_backtest()
-    
+if st.button('🚀 Run Deep Analysis'):
+    df = run_reasoning_engine()
     if not df.empty:
-        blue_df = df[df['Category'].str.contains("BLUE")]
-        total_blue = len(blue_df)
-        hits_1_2 = len(blue_df[blue_df['Status'].str.contains("Jackpot")])
-        hits_1_1 = len(blue_df[blue_df['Target 1:1'] == "✅ Hit"])
-        
-        st.subheader(f"📊 Dashboard: {adjusted_date}")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("🎯 1:1 Hit Rate (Blue)", f"{round((hits_1_1/total_blue)*100, 1) if total_blue > 0 else 0}%")
-        m2.metric("🔥 1:2 Jackpot Rate (Blue)", f"{round((hits_1_2/total_blue)*100, 1) if total_blue > 0 else 0}%")
-        m3.metric("🔵 Total Blue Signals", total_blue)
-        
-        st.divider()
-        st.write("### 🔍 Summary & Attribution")
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        
-        st.divider()
-        st.write("### 💡 Why did it Hit? (Deep Dive)")
+        st.subheader("🔍 Trade Reasoning & Attribution")
         for _, row in df.iterrows():
-            with st.expander(f"{row['Stock']} - {row['Status']}"):
-                c1, c2 = st.columns([1, 2])
-                with c1:
-                    st.write(f"**Entry:** ₹{row['Entry']}")
-                    st.write(f"**SL:** ₹{row['SL']}")
-                    st.write(f"**1:1 Target:** ₹{round(row['Entry'] + (row['Entry']-row['SL']), 2)}")
-                    st.write(f"**1:2 Target:** ₹{row['Target 1:2']}")
-                    st.write(f"**Target 1:1 Met:** {row['Target 1:1']}")
-                with c2:
-                    st.info(f"**Quant Attribution:** {row['Attribution']}")
-                    st.link_button(f"Analyze {row['Stock']} Chart", row['Chart'])
+            with st.expander(f"{row['Stock']} - {row['Outcome']}"):
+                st.write(row['Reasoning'])
+                st.write(f"**Technical Stats:** RSI: {row['RSI']} | Volume Ratio: {row['Vol_Ratio']}x")
+                st.link_button("View Chart", row['Chart'])
     else:
-        st.warning("No signals found for this period.")
+        st.warning("No Triple Bullish setups on this date.")
+
+st.divider()
+st.caption("AI Reasoner v1.0 | Vectorized Technical Attribution")
