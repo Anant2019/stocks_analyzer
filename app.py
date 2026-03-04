@@ -12,7 +12,7 @@ st.set_page_config(
     page_icon="💹"
 )
 
-# --- 2. UI STYLING ---
+# --- 2. UI STYLING (Mobile-Optimized) ---
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: #E0E0E0; }
@@ -22,16 +22,31 @@ st.markdown("""
         border: 1px solid rgba(255, 75, 75, 0.2) !important;
         border-radius: 10px;
     }
-    [data-testid="stMetricValue"] { font-size: 2.2rem !important; font-weight: 800; color: #00FFA3 !important; }
-    .stButton button, .stDownloadButton button {
+    [data-testid="stMetricValue"] { font-size: 1.8rem !important; font-weight: 800; color: #00FFA3 !important; }
+    
+    /* Card Styling */
+    .stock-card {
+        background-color: #1A1C23;
+        border: 1px solid #333;
+        border-radius: 15px;
+        padding: 20px;
+        margin-bottom: 15px;
+        transition: 0.3s;
+    }
+    .stock-card:hover { border-color: #00FFA3; }
+    .status-badge {
+        padding: 4px 10px;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        float: right;
+    }
+    
+    .stButton button {
         border-radius: 12px; padding: 0.6rem 2rem; font-weight: 700;
-        background-color: #262730; color: white; border: 1px solid #4B4B4B; transition: 0.3s;
+        background-color: #262730; color: white; border: 1px solid #4B4B4B; width: 100%;
     }
-    .stButton button:hover { border-color: #00FFA3; color: #00FFA3; }
-    @media (min-width: 800px) {
-        .stButton button, .stDownloadButton button { max-width: 300px; display: block; margin: 0 auto; }
-    }
-    .stExpander { background-color: #1A1C23; border: 1px solid #333; border-radius: 12px; }
+    .stExpander { border: none !important; background-color: transparent !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -53,39 +68,17 @@ NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS'
 
 # --- 5. TECHNICAL VECTOR ENGINE ---
 def get_technical_audit(ticker, d, status, v_ratio, is_blue):
-    """Generates precise technical parameter audit."""
     rsi = round(d['RSI'], 1)
     bb_upper = d['SMA_20'] + (2 * d['STD_20'])
     bb_pos = "Upper Band Breach" if d['Close'] > bb_upper else "Within BB Range"
     vol_delta = f"{round((v_ratio - 1)*100, 1)}% Above Average" if v_ratio > 1 else "Below Average"
 
     if status == "🟢 Jackpot Hit":
-        reason = f"""
-        *Audit Parameters (Convergence Hit):*
-        
-        1. *Momentum Delta:* RSI at *{rsi}* confirmed high-velocity trend sustainment without bearish divergence.
-        2. *Volatility Scaling:* Price tracked the *{bb_pos}*, signaling a volatility expansion phase.
-        3. *Volume Confirmation:* Liquidity flow was *{vol_delta}*, validating the structural breakout.
-        4. *RR Performance:* 1:2 Vector completed. Support at ₹{round(d['Low'],2)} held vs intraday volatility.
-        """
+        reason = f"1. *Momentum Delta:* RSI at *{rsi}* confirmed velocity.\n2. *Volatility Scaling:* Price tracked {bb_pos}.\n3. *Volume:* {vol_delta}.\n4. *Exit:* 1:2 Vector completed."
     elif status == "🔴 SL Hit":
-        reason = f"""
-        *Audit Parameters (Invalidation):*
-        
-        1. *Momentum Failure:* RSI stalled at *{rsi}*, signaling a exhaustion gap in the bullish trend.
-        2. *Volatility Trap:* Price failed to hold the *{bb_pos}*, resulting in a mean-reversion pull-back.
-        3. *Volume Divergence:* Liquidity flow of *{vol_delta}* was insufficient to absorb overhead supply.
-        4. *Structural Breach:* Support floor at ₹{round(d['Low'],2)} was compromised; trend invalidated.
-        """
+        reason = f"1. *Momentum Failure:* RSI stalled at *{rsi}*.\n2. *Volatility Trap:* Price failed to hold {bb_pos}.\n3. *Volume Divergence:* {vol_delta} flow insufficient."
     else:
-        reason = f"""
-        *Audit Parameters (In-Transit):*
-        
-        1. *Momentum Index:* RSI current at *{rsi}*. Trend structure remains intact.
-        2. *BB Positioning:* Price is currently *{bb_pos}*.
-        3. *Volume Delta:* Flow is *{vol_delta}*.
-        4. *Safety Level:* Protective stop remains static at ₹{round(d['Low'],2)}.
-        """
+        reason = f"1. *Momentum:* RSI at *{rsi}*.\n2. *Position:* Currently {bb_pos}.\n3. *Flow:* {vol_delta}."
     return reason
 
 def run_arthasutra_engine(target_date):
@@ -101,39 +94,34 @@ def run_arthasutra_engine(target_date):
             if valid_dates.empty: continue
             t_ts = valid_dates[-1]; actual_date = t_ts.date()
             
-            # Technical Indicators
             data['SMA_44'] = data['Close'].rolling(window=44).mean()
             data['SMA_200'] = data['Close'].rolling(window=200).mean()
             data['SMA_20'] = data['Close'].rolling(window=20).mean()
             data['STD_20'] = data['Close'].rolling(window=20).std()
             data['Vol_MA'] = data['Volume'].rolling(window=20).mean()
-            
-            # RSI Logic
-            delta = data['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            delta = data['Close'].diff(); gain = (delta.where(delta > 0, 0)).rolling(window=14).mean(); loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
             data['RSI'] = 100 - (100 / (1 + (gain / (loss + 1e-10))))
             
             d = data.loc[t_ts]
             if d['Close'] > d['SMA_44'] and d['SMA_44'] > d['SMA_200'] and d['Close'] > d['Open']:
                 is_blue = d['RSI'] > 65 and d['Volume'] > d['Vol_MA'] and (d['Close'] > d['SMA_200'] * 1.05)
-                risk = d['Close'] - d['Low']
-                if risk <= 0: continue
-                t2 = d['Close'] + (2 * risk)
+                risk = d['Close'] - d['Low']; t1 = d['Close'] + risk; t2 = d['Close'] + (2 * risk)
                 
-                status, jackpot_hit = "⏳ Running", False
+                status, jackpot_hit, days_taken = "⏳ Running", False, "-"
                 future = data[data.index > t_ts]
                 if not future.empty:
-                    for f_dt, f_row in future.iterrows():
+                    for idx, (f_dt, f_row) in enumerate(future.iterrows()):
+                        days_taken = idx + 1
                         if f_row['Low'] <= d['Low']: status = "🔴 SL Hit"; break
                         if f_row['High'] >= t2: status = "🟢 Jackpot Hit"; jackpot_hit = True; break
+                        if f_row['High'] >= t1: status = "🟡 Partial Hit"
                 
                 v_ratio = d['Volume'] / d['Vol_MA']
                 results.append({
                     "Stock": ticker.replace(".NS",""),
                     "Category": "🔵 BLUE" if is_blue else "🟡 AMBER",
                     "Status": status, "Jackpot": jackpot_hit, "Entry": round(d['Close'], 2),
-                    "Target": round(t2, 2), "RSI": round(d['RSI'], 1),
+                    "Target": round(t2, 2), "SL": round(d['Low'], 2), "Days": days_taken,
                     "Audit": get_technical_audit(ticker, d, status, v_ratio, is_blue),
                     "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
@@ -145,39 +133,37 @@ def run_arthasutra_engine(target_date):
 st.title("💹 ArthaSutra")
 st.caption("Discipline • Prosperity • Consistency")
 
-_, col_input, _ = st.columns([1, 1.5, 1])
-with col_input:
-    selected_date = st.date_input("Audit Date", datetime.now().date() - timedelta(days=2))
-    run_btn = st.button('🚀 Execute Strategy Audit', use_container_width=True)
+selected_date = st.date_input("Audit Date", datetime.now().date() - timedelta(days=2))
+run_btn = st.button('🚀 Execute Strategy Audit')
 
 if run_btn:
     df, adj_date = run_arthasutra_engine(selected_date)
     if not df.empty:
         blue_df = df[df['Category'] == "🔵 BLUE"]
-        blue_hits = len(blue_df[blue_df['Jackpot'] == True])
-        
-        st.write(f"### 📊 Institutional Report: {adj_date}")
-        m1, m2, m3 = st.columns(3)
+        st.write(f"### 📊 Report: {adj_date}")
+        m1, m2 = st.columns(2)
         m1.metric("🔵 Blue Signals", len(blue_df))
-        m2.metric("🎯 Blue Accuracy %", f"{round((blue_hits/len(blue_df))*100, 1) if not blue_df.empty else 0}%")
-        m3.metric("🔥 Total Jackpots", len(df[df['Jackpot'] == True]))
-        
-        _, col_dl, _ = st.columns([1, 1, 1])
-        with col_dl:
-            st.download_button("📂 Export Audit CSV", data=df.to_csv(index=False).encode('utf-8'), file_name=f"ArthaSutra_{adj_date}.csv", use_container_width=True)
+        m2.metric("🎯 Blue Accuracy %", f"{round((len(blue_df[blue_df['Jackpot'] == True])/len(blue_df))*100, 1) if not blue_df.empty else 0}%")
 
         st.divider()
-        st.write("### 🔍 Live Signals Tracker")
-        st.dataframe(df.drop(columns=['Audit', 'Jackpot']), use_container_width=True, hide_index=True)
-        
-        st.divider()
-        st.write("### 💡 Quantitative Strategy Audit")
+        # CARD-BASED UI
         for _, row in df.iterrows():
-            with st.expander(f"{row['Stock']} | {row['Category']} | {row['Status']}"):
-                st.markdown(row['Audit'])
-                st.link_button(f"Analyze {row['Stock']} Chart", row['Chart'], use_container_width=True)
+            with st.container():
+                st.markdown(f"""
+                <div class="stock-card">
+                    <span class="status-badge" style="color: {'#00FFA3' if 'Hit' in row['Status'] else '#FF7E7E'};">
+                        {row['Status']}
+                    </span>
+                    <h3 style="margin:0;">{row['Stock']} <small style="font-size:0.6em; color:#888;">{row['Category']}</small></h3>
+                    <p style="margin:10px 0; color:#BBB;">Entry: <b>₹{row['Entry']}</b> | SL: <b>₹{row['SL']}</b> | Tgt: <b>₹{row['Target']}</b></p>
+                    <p style="font-size:0.9rem; color:#00FFA3;">⏱ Days Taken: {row['Days']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                with st.expander("🔍 Deep Analysis & Chart"):
+                    st.markdown(row['Audit'])
+                    st.link_button("View TradingView Chart", row['Chart'], use_container_width=True)
     else:
         st.warning("No Bullish Technical setups found.")
 
 st.divider()
-st.caption("ArthaSutra • Discipline, Prosperity, Consistency • Advanced Vector Engine")
+st.caption("ArthaSutra • Mobile-Optimized Strategy Audit")
