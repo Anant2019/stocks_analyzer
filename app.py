@@ -48,6 +48,8 @@ st.markdown("""
         font-size: 0.85rem;
         font-weight: 600;
     }
+    .rr-label { color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: bold; }
+    .rr-value { color: white; font-size: 1rem; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -68,7 +70,7 @@ with st.expander("📝 IMPORTANT: SEBI Non-Registration & Risk Warning", expande
 NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS']
 
 # --- 5. TECHNICAL VECTOR ENGINE ---
-def get_technical_audit(ticker, d, status, v_ratio, is_blue, days_to_hit):
+def get_technical_audit(ticker, d, status, v_ratio, is_blue, days_to_hit, sl, t1, t2):
     rsi = round(d['RSI'], 1)
     bb_upper = d['SMA_20'] + (2 * d['STD_20'])
     bb_pos = "Upper Band Breach" if d['Close'] > bb_upper else "Within BB Range"
@@ -82,7 +84,7 @@ def get_technical_audit(ticker, d, status, v_ratio, is_blue, days_to_hit):
         1. *Momentum Delta:* RSI at *{rsi}* confirmed high-velocity trend sustainment.
         2. *Volatility Scaling:* Price tracked the *{bb_pos}*.
         3. *Volume Confirmation:* Liquidity flow was *{vol_delta}*.
-        4. *RR Performance:* 1:2 Vector completed. Support at ₹{round(d['Low'],2)} held.
+        4. *RR Performance:* 1:2 Vector (₹{t2}) completed. Support at ₹{sl} held.
         """
     elif status == "🔴 SL Hit":
         reason = f"""
@@ -91,15 +93,15 @@ def get_technical_audit(ticker, d, status, v_ratio, is_blue, days_to_hit):
         1. *Momentum Failure:* RSI stalled at *{rsi}*, signaling exhaustion.
         2. *Volatility Trap:* Price failed to hold the *{bb_pos}*.
         3. *Volume Divergence:* Liquidity flow of *{vol_delta}* was insufficient.
-        4. *Structural Breach:* Support floor at ₹{round(d['Low'],2)} compromised.
+        4. *Structural Breach:* Support floor (SL) at ₹{sl} compromised.
         """
     else:
         reason = f"""
         *Audit Parameters (In-Transit):*
         1. *Momentum Index:* RSI current at *{rsi}*.
-        2. *BB Positioning:* Price is currently *{bb_pos}*.
-        3. *Volume Delta:* Flow is *{vol_delta}*.
-        4. *Safety Level:* Protective stop remains at ₹{round(d['Low'],2)}.
+        2. *Target Progress:* Path toward T1 (₹{t1}) and T2 (₹{t2}) active.
+        3. *Volume Delta:* Flow is {vol_delta}.
+        4. *Safety Level:* Protective stop remains at ₹{sl}.
         """
     return reason
 
@@ -130,16 +132,21 @@ def run_arthasutra_engine(target_date):
             d = data.loc[t_ts]
             if d['Close'] > d['SMA_44'] and d['SMA_44'] > d['SMA_200'] and d['Close'] > d['Open']:
                 is_blue = d['RSI'] > 65 and d['Volume'] > d['Vol_MA'] and (d['Close'] > d['SMA_200'] * 1.05)
-                risk = d['Close'] - d['Low']
-                if risk <= 0: continue
-                t2 = d['Close'] + (2 * risk)
+                
+                # RISK REWARD CALCULATIONS
+                sl = round(d['Low'], 2)
+                risk_amt = d['Close'] - sl
+                if risk_amt <= 0: continue
+                
+                t1 = round(d['Close'] + risk_amt, 2)     # 1:1
+                t2 = round(d['Close'] + (2 * risk_amt), 2) # 1:2
                 
                 status, jackpot_hit, days_to_hit = "⏳ Running", False, "-"
                 future = data[data.index > t_ts]
                 
                 if not future.empty:
                     for count, (f_dt, f_row) in enumerate(future.iterrows(), 1):
-                        if f_row['Low'] <= d['Low']: 
+                        if f_row['Low'] <= sl: 
                             status = "🔴 SL Hit"
                             days_to_hit = count
                             break
@@ -154,8 +161,9 @@ def run_arthasutra_engine(target_date):
                     "Stock": ticker.replace(".NS",""),
                     "Category": "🔵 BLUE" if is_blue else "🟡 AMBER",
                     "Status": status, "Jackpot": jackpot_hit, "Entry": round(d['Close'], 2),
-                    "Target": round(t2, 2), "RSI": round(d['RSI'], 1), "Days": days_to_hit,
-                    "Audit": get_technical_audit(ticker, d, status, v_ratio, is_blue, days_to_hit),
+                    "SL": sl, "T1": t1, "T2": t2,
+                    "RSI": round(d['RSI'], 1), "Days": days_to_hit,
+                    "Audit": get_technical_audit(ticker, d, status, v_ratio, is_blue, days_to_hit, sl, t1, t2),
                     "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
@@ -183,7 +191,6 @@ if run_btn:
         m2.metric("🎯 Blue Accuracy %", f"{round((blue_hits/len(blue_df))*100, 1) if not blue_df.empty else 0}%")
         m3.metric("🔥 Total Jackpots", len(df[df['Jackpot'] == True]))
         
-        # DOWNLOAD CSV BUTTON (CENTERED)
         st.divider()
         _, col_dl, _ = st.columns([1, 1.2, 1])
         with col_dl:
@@ -199,7 +206,6 @@ if run_btn:
 
         st.write("### 🔍 Live Signals Tracker")
         for _, row in df.iterrows():
-            # Card Border Color based on Status
             border_clr = "#00FFA3" if row['Jackpot'] else "#FF7E7E" if 'SL' in row['Status'] else "#333"
             
             with st.container():
@@ -212,11 +218,13 @@ if run_btn:
                             <span class="duration-badge">{row['Days']} Days to Hit</span>
                         </div>
                     </div>
-                    <div style="display: flex; justify-content: space-between; margin-top: 15px;">
-                        <span>Entry: <b style="color:white;">₹{row['Entry']}</b></span>
-                        <span>Target: <b style="color:#00FFA3;">₹{row['Target']}</b></span>
-                        <span>{row['Category']}</span>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 15px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px;">
+                        <div><div class="rr-label">Entry</div><div class="rr-value">₹{row['Entry']}</div></div>
+                        <div><div class="rr-label" style="color:#FF7E7E;">Stop Loss</div><div class="rr-value">₹{row['SL']}</div></div>
+                        <div><div class="rr-label" style="color:#00FFA3;">T1 (1:1)</div><div class="rr-value">₹{row['T1']}</div></div>
+                        <div><div class="rr-label" style="color:#00FFA3;">T2 (1:2)</div><div class="rr-value">₹{row['T2']}</div></div>
                     </div>
+                    <div style="margin-top: 10px; font-size: 0.85rem; color: #888;">Category: {row['Category']} | RSI: {row['RSI']}</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
