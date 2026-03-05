@@ -46,7 +46,23 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. CORE ENGINE ---
+# --- 3. LEGAL DISCLOSURE (RESTORED) ---
+st.error("🔒 *LEGAL DISCLOSURE & COMPLIANCE*")
+with st.expander("📝 IMPORTANT: SEBI Non-Registration & Risk Warning", expanded=True):
+    st.markdown("""
+    <div style="background-color: rgba(255, 193, 7, 0.05); padding:15px; border-radius:12px; border:1px solid rgba(255, 193, 7, 0.3);">
+        <h4 style="color:#FFC107; margin-top:0;">⚠️ NOT SEBI REGISTERED</h4>
+        <p style="color:#CCCCCC; font-size:0.95em;">
+            <b>ArthaSutra</b> is an automated technical research engine. We are <b>NOT SEBI REGISTERED</b>. 
+            The information provided is for educational purposes only. <b>Trading involves high risk.</b>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# --- 4. TICKER LIST (RESTORED) ---
+NIFTY_200 = ['ABB.NS', 'ACC.NS', 'ADANIENSOL.NS', 'ADANIENT.NS', 'ADANIGREEN.NS', 'ADANIPORTS.NS', 'ADANIPOWER.NS', 'ATGL.NS', 'AMBUJACEM.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AUBANK.NS', 'AUROPHARMA.NS', 'DMART.NS', 'AXISBANK.NS', 'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BAJAJHLDNG.NS', 'BALKRISIND.NS', 'BANDHANBNK.NS', 'BANKBARODA.NS', 'BANKINDIA.NS', 'BERGEPAINT.NS', 'BEL.NS', 'BHARTIARTL.NS', 'BIOCON.NS', 'BOSCHLTD.NS', 'BPCL.NS', 'BRITANNIA.NS', 'CANBK.NS', 'CHOLAFIN.NS', 'CIPLA.NS', 'COALINDIA.NS', 'COFORGE.NS', 'COLPAL.NS', 'CONCOR.NS', 'CUMMINSIND.NS', 'DLF.NS', 'DABUR.NS', 'DALBHARAT.NS', 'DEEPAKNTR.NS', 'DIVISLAB.NS', 'DIXON.NS', 'DRREDDY.NS', 'EICHERMOT.NS', 'ESCORTS.NS', 'EXIDEIND.NS', 'FEDERALBNK.NS', 'GAIL.NS', 'GLAND.NS', 'GLENMARK.NS', 'GODREJCP.NS', 'GODREJPROP.NS', 'GRASIM.NS', 'GUJGASLTD.NS', 'HAL.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS', 'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDCOPPER.NS', 'HINDPETRO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'IDFCFIRSTB.NS', 'ITC.NS', 'INDIAHOTEL.NS', 'IOC.NS', 'IRCTC.NS', 'IRFC.NS', 'IGL.NS', 'INDUSTOWER.NS', 'INDUSINDBK.NS', 'INFY.NS', 'IPCALAB.NS', 'JSWSTEEL.NS', 'JSL.NS', 'JUBLFOOD.NS', 'KOTAKBANK.NS', 'LT.NS', 'LTIM.NS', 'LTTS.NS', 'LICHSGFIN.NS', 'LICI.NS', 'LUPIN.NS', 'MRF.NS', 'M&M.NS', 'M&MFIN.NS', 'MARICO.NS', 'MARUTI.NS', 'MAXHEALTH.NS', 'MPHASIS.NS', 'NHPC.NS', 'NMDC.NS', 'NTPC.NS', 'NESTLEIND.NS', 'OBEROIRLTY.NS', 'ONGC.NS', 'OIL.NS', 'PAYTM.NS', 'PIIND.NS', 'PFC.NS', 'POLY_MED.NS', 'POLYCAB.NS', 'POWARGRID.NS', 'PRESTIGE.NS', 'RELIANCE.NS', 'RVNL.NS', 'RECLTD.NS', 'SBICARD.NS', 'SBILIFE.NS', 'SRF.NS', 'SHREECEM.NS', 'SHRIRAMFIN.NS', 'SIEMENS.NS', 'SONACOMS.NS', 'SBIN.NS', 'SAIL.NS', 'SUNPHARMA.NS', 'SUNTV.NS', 'SYNGENE.NS', 'TATACOMM.NS', 'TATAELXSI.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATAPOWER.NS', 'TATASTEEL.NS', 'TCS.NS', 'TECHM.NS', 'TITAN.NS', 'TORNTPHARM.NS', 'TRENT.NS', 'TIINDIA.NS', 'UPL.NS', 'ULTRACEMCO.NS', 'UNITDSPR.NS', 'VBL.NS', 'VEDL.NS', 'VOLTAS.NS', 'WIPRO.NS', 'YESBANK.NS', 'ZOMATO.NS', 'ZYDUSLIFE.NS']
+
+# --- 5. TECHNICAL VECTOR ENGINE ---
 def run_arthasutra_engine(target_date):
     results = []
     actual_date = None
@@ -62,9 +78,7 @@ def run_arthasutra_engine(target_date):
             
             data['SMA_44'] = data['Close'].rolling(44).mean()
             data['SMA_200'] = data['Close'].rolling(200).mean()
-            data['Vol_MA'] = data['Volume'].rolling(20).mean()
             
-            # RSI
             delta = data['Close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -101,7 +115,7 @@ def run_arthasutra_engine(target_date):
         progress_bar.progress((i + 1) / len(NIFTY_200))
     return pd.DataFrame(results), actual_date
 
-# --- 4. USER INTERFACE ---
+# --- 6. USER INTERFACE ---
 st.title("💹 ArthaSutra")
 selected_date = st.date_input("Audit Date", datetime.now().date() - timedelta(days=5))
 
@@ -146,8 +160,10 @@ if st.button('🚀 Execute Strategy Audit', use_container_width=True):
                         <div class="profit-pct">+{row['T2_Pct']}%</div>
                     </div>
                 </div>
-                <div style="margin-top: 10px; font-size: 0.8rem; color: #666;">
-                    Technical Note: RSI {row['RSI']} | 1:1 Hit: {"✅" if row['T1_Hit'] else "❌"}
-                </div>
             </div>
             """, unsafe_allow_html=True)
+    else:
+        st.warning("No Bullish Technical setups found.")
+
+st.divider()
+st.caption("ArthaSutra • Risk-Reward Audit v5.1")
