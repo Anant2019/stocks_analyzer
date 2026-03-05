@@ -109,7 +109,7 @@ def run_arhtasutra_v7(target_date):
                     "Stock": ticker.replace(".NS",""), "Status": status, "Entry": round(d['Close'], 2),
                     "SL": sl, "T1": t1, "T2": t2, "T1_P": t1_p, "T2_P": t2_p,
                     "T1_H": t1_hit, "T2_H": t2_hit, "Days": days, "RSI": round(d['RSI'], 1),
-                    "Type": "🔵 BLUE TREND" if is_blue else "🟡 AMBER TREND",
+                    "Type": "🔵 TREND" if is_blue else "🟡 TREND",
                     "Chart": f"https://www.tradingview.com/chart/?symbol=NSE:{ticker.replace('.NS','')}"
                 })
         except: continue
