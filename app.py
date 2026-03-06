@@ -892,7 +892,7 @@ def main():
             st.session_state["elapsed"]   = elapsed
 
     # ── RESULTS ───────────────────────────────────────────────────────────────
-    if not st.session_state["records"]:
+    if st.session_state["records"] is None:
         st.markdown("""
 <div style="text-align:center;padding:50px 0;color:#1e3045;">
   <div style="font-size:48px;margin-bottom:12px;opacity:.5;">🔱</div>
@@ -934,8 +934,21 @@ Stocks that pass all three tests are shown as signals.
         return
 
     records   = st.session_state["records"]
-    scan_date = st.session_state["scan_date"]
+    _sd       = st.session_state["scan_date"]
     elapsed   = st.session_state["elapsed"]
+
+    # Normalise scan_date — session state may store it as date, datetime, or string
+    if isinstance(_sd, datetime):
+        scan_date = _sd.date()
+    elif isinstance(_sd, str):
+        try:
+            scan_date = datetime.strptime(_sd, "%Y-%m-%d").date()
+        except Exception:
+            scan_date = date.today()
+    elif isinstance(_sd, date):
+        scan_date = _sd
+    else:
+        scan_date = date.today()
 
     filtered  = [r for r in records if fcat is None or r.category == fcat]
     blue      = [r for r in records if r.category == "BLUE"]
@@ -947,7 +960,7 @@ Stocks that pass all three tests are shown as signals.
     # ── SCAN COMPLETE BANNER ──────────────────────────────────────────────────
     st.success(
         f"✅ **Scan complete — {scan_date.strftime('%d %B %Y')}**\n\n"
-        f"{len(records)} signals found in {elapsed:.1f}s"
+        f"{len(records)} signals found in {float(elapsed):.1f}s"
     )
 
     # ── STATS (2-column grid for mobile) ─────────────────────────────────────
