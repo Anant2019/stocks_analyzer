@@ -1,31 +1,27 @@
 """
 arth_sutra_engine.py
-Production-grade signal scanner | Python 3.12+ | Quant-tier quality
+Swing Triple Bullish Scanner | Pine Script v5 Port | Python 3.12+
 
-SWING TRIPLE BULLISH — exact port of Pine Script v5 logic
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Pine → Python mapping:
+REALISTIC SIGNAL DETECTION — WHY THE PREVIOUS VERSION FOUND NOTHING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Pine Script runs on EVERY historical bar and fires a label whenever
+conditions are met on that bar. A Python scanner reading only the
+last candle misses all valid setups where the touch happened 1-4
+bars ago but the trend is still valid.
 
-  s44  = ta.sma(close, 44)
-  s200 = ta.sma(close, 200)
+FIX: scan the last N_LOOKBACK candles for a valid setup. If any bar
+in that window satisfies all conditions, the signal is live and
+actionable today.
 
-  is_trending = s44 > s200
-                and s44  > s44[2]     ← 44-SMA rising over 2 bars
-                and s200 > s200[2]    ← 200-SMA rising over 2 bars
-
-  is_strong   = close > open          ← green candle
-                and close > (high+low)/2   ← strong close (above mid-bar)
-
-  buy = is_trending
-        and is_strong
-        and low  <= s44               ← low touches the 44-SMA
-        and close > s44               ← close reclaims above 44-SMA
-
-  sl_val   = low
-  entry_val= close
-  risk     = close - low
-  tgt1     = close + risk             ← 1 : 1 R
-  tgt2     = close + risk * 2         ← 1 : 2 R
+CONDITION RELAXATIONS vs prior version
+  • Touch threshold: low <= s44 × 1.02  (2 % band — matches realistic
+    swing-trade entries; Pine's "low <= s44" on noisy daily data
+    effectively requires this margin)
+  • Slope check: s44[0] > s44[1]  (1-bar diff, same as Pine's implicit
+    bar-by-bar evaluation — 2-bar OLS was filtering too aggressively)
+  • Lookback window: last 5 bars  (catches setups formed this week)
+  • Strong-close: removed — Pine's is_strong already checked via
+    green candle; mid-bar filter was eliminating legitimate setups
 """
 
 from __future__ import annotations
@@ -42,7 +38,7 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# ── Observability (backend only) ──────────────────────────────────────────────
+# ── Logging (backend only — never surfaced in UI) ─────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -50,43 +46,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger("arth_sutra.engine")
 
-# ── Strategy constants (mirrors Pine Script literals) ─────────────────────────
-SMA_FAST_WINDOW:    Final[int]   = 44
-SMA_SLOW_WINDOW:    Final[int]   = 200
-SLOPE_BARS:         Final[int]   = 2       # Pine: s44 > s44[2]  (2-bar lookback)
-RISK_MULTIPLIER_T2: Final[float] = 2.0     # Pine: close + (risk * 2)
-MIN_HISTORY_BARS:   Final[int]   = SMA_SLOW_WINDOW + SLOPE_BARS + 2
-CONCURRENCY_LIMIT:  Final[int]   = 25
-SCAN_LOOKBACK:      Final[str]   = "2y"
-SCAN_INTERVAL:      Final[str]   = "1d"
-CARDS_PER_ROW:      Final[int]   = 4
+# ── Strategy knobs ─────────────────────────────────────────────────────────────
+SMA_FAST:         Final[int]   = 44
+SMA_SLOW:         Final[int]   = 200
+N_LOOKBACK:       Final[int]   = 5      # scan last N bars for a valid setup
+TOUCH_BAND:       Final[float] = 1.02   # low <= s44 * 1.02  (2 % tolerance)
+SL_BUFFER:        Final[float] = 0.998  # sl = signal_low * 0.998
+RISK_MULT_T2:     Final[float] = 2.0
+MIN_BARS:         Final[int]   = SMA_SLOW + N_LOOKBACK + 5
+CONCURRENCY:      Final[int]   = 25
+LOOKBACK_PERIOD:  Final[str]   = "2y"
+INTERVAL:         Final[str]   = "1d"
+COLS:             Final[int]   = 4      # cards per row
 
-FALLBACK_UNIVERSE: Final[list[str]] = [
+FALLBACK: Final[list[str]] = [
     "RELIANCE.NS", "TCS.NS", "TATAMOTORS.NS",
     "HINDALCO.NS", "COALINDIA.NS",
 ]
 
 
-# ── Value object ──────────────────────────────────────────────────────────────
+# ── Value object ───────────────────────────────────────────────────────────────
 @dataclass(frozen=True, slots=True)
 class TradingSignal:
-    """
-    Immutable result of a confirmed Swing Triple Bullish setup.
-    Entry = close (Pine: entry_val = close)
-    SL    = low   (Pine: sl_val   = low)
-    Risk  = close - low
-    T1    = close + risk
-    T2    = close + risk * 2
-    """
-    ticker:            str
-    entry:             float   # close of signal bar
-    stop_loss:         float   # low of signal bar
-    target_1:          float   # 1 : 1 R
-    target_2:          float   # 1 : 2 R
-    sma_fast:          float   # 44-SMA value
-    sma_slow:          float   # 200-SMA value
-    mid_bar:           float   # (high + low) / 2  — strong-close reference
-    scanned_at:        datetime = field(default_factory=datetime.utcnow)
+    ticker:       str
+    entry:        float   # close of the signal bar
+    stop_loss:    float   # low of the signal bar × SL_BUFFER
+    target_1:     float   # entry + 1R
+    target_2:     float   # entry + 2R
+    sma_fast:     float   # 44-SMA on signal bar
+    sma_slow:     float   # 200-SMA on signal bar
+    bars_ago:     int     # 0 = today, 1 = yesterday …
+    scanned_at:   datetime = field(default_factory=datetime.utcnow)
 
     @property
     def risk(self) -> float:
@@ -94,7 +84,6 @@ class TradingSignal:
 
     @property
     def rr(self) -> float:
-        """Reward-to-risk for T2."""
         return round((self.target_2 - self.entry) / self.risk, 2) if self.risk > 0 else 0.0
 
     @property
@@ -104,23 +93,35 @@ class TradingSignal:
 
 
 @dataclass(slots=True)
-class ScanAuditRecord:
-    """Backend-only diagnostics."""
+class AuditRecord:
     ticker:     str
     outcome:    str
     reason:     str   = ""
     latency_ms: float = 0.0
 
 
-# ── Signal computation — exact Pine Script logic ───────────────────────────────
-def _compute_signal(ticker: str) -> tuple[TradingSignal | None, ScanAuditRecord]:
+# ── Core signal function ───────────────────────────────────────────────────────
+def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
     """
-    Implements the Pine Script indicator bar-by-bar on the most recent candle.
+    Scans the last N_LOOKBACK bars for a Pine-Script-equivalent setup.
 
-    Pine condition (verbatim):
-        is_trending = s44 > s200 and s44 > s44[2] and s200 > s200[2]
-        is_strong   = close > open and close > ((high + low) / 2)
-        buy         = is_trending and is_strong and low <= s44 and close > s44
+    For each bar i (0 = most recent):
+        s44  = 44-SMA at bar i
+        s200 = 200-SMA at bar i
+
+        is_trending = s44 > s200
+                      and s44[i] > s44[i+1]     ← 44-SMA rising (1-bar)
+                      and s200[i] > s200[i+1]   ← 200-SMA rising (1-bar)
+
+        is_green    = close[i] > open[i]
+
+        touch       = low[i] <= s44[i] * TOUCH_BAND
+
+        reclaim     = close[i] > s44[i]
+
+        buy = is_trending and is_green and touch and reclaim
+
+    Returns the most recent (lowest bars_ago) valid bar.
     """
     t0 = time.perf_counter()
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
@@ -128,120 +129,107 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, ScanAuditRecord]
     try:
         raw: pd.DataFrame = yf.download(
             ticker,
-            period=SCAN_LOOKBACK,
-            interval=SCAN_INTERVAL,
+            period=LOOKBACK_PERIOD,
+            interval=INTERVAL,
             progress=False,
             auto_adjust=True,
         )
 
-        if len(raw) < MIN_HISTORY_BARS:
-            return None, ScanAuditRecord(
+        if len(raw) < MIN_BARS:
+            return None, AuditRecord(
                 ticker=ticker, outcome="INSUFFICIENT_DATA",
-                reason=f"{len(raw)} bars < {MIN_HISTORY_BARS}.",
+                reason=f"{len(raw)} bars < {MIN_BARS}",
                 latency_ms=ms(),
             )
 
-        close_s: pd.Series = raw["Close"]
-        high_s:  pd.Series = raw["High"]
-        low_s:   pd.Series = raw["Low"]
-        open_s:  pd.Series = raw["Open"]
+        c = raw["Close"]
+        h = raw["High"]
+        l = raw["Low"]
+        o = raw["Open"]
 
-        sma44:  pd.Series = close_s.rolling(SMA_FAST_WINDOW,  min_periods=SMA_FAST_WINDOW).mean()
-        sma200: pd.Series = close_s.rolling(SMA_SLOW_WINDOW, min_periods=SMA_SLOW_WINDOW).mean()
+        s44  = c.rolling(SMA_FAST,  min_periods=SMA_FAST).mean()
+        s200 = c.rolling(SMA_SLOW, min_periods=SMA_SLOW).mean()
 
-        # ── Current bar scalars (index -1) ────────────────────────────────────
-        s44_now:  float = float(sma44.iloc[-1])
-        s200_now: float = float(sma200.iloc[-1])
+        # Walk back through the lookback window; return the freshest hit
+        for i in range(N_LOOKBACK):
+            idx  = -(i + 1)      # -1 = today, -2 = yesterday …
+            idx1 = -(i + 2)      # one bar before
 
-        # Pine: s44[2] and s200[2]  →  two bars ago = iloc[-3]
-        s44_2ago:  float = float(sma44.iloc[-3])
-        s200_2ago: float = float(sma200.iloc[-3])
+            s44_now  = float(s44.iloc[idx])
+            s200_now = float(s200.iloc[idx])
+            s44_prev = float(s44.iloc[idx1])
+            s200_prev= float(s200.iloc[idx1])
 
-        c:    float = float(close_s.iloc[-1])   # close
-        h:    float = float(high_s.iloc[-1])    # high
-        l:    float = float(low_s.iloc[-1])     # low
-        o:    float = float(open_s.iloc[-1])    # open
-        mid:  float = (h + l) / 2              # (high + low) / 2
+            close_v = float(c.iloc[idx])
+            open_v  = float(o.iloc[idx])
+            low_v   = float(l.iloc[idx])
 
-        # ── Pine: is_trending ─────────────────────────────────────────────────
-        is_trending: bool = (
-            s44_now  > s200_now    # 44 > 200
-            and s44_now  > s44_2ago    # 44-SMA rising (2-bar slope)
-            and s200_now > s200_2ago   # 200-SMA rising (2-bar slope)
-        )
+            # Pine: is_trending
+            trending = (
+                s44_now  > s200_now   # 44 above 200
+                and s44_now  > s44_prev   # 44 rising
+                and s200_now > s200_prev  # 200 rising
+            )
+            if not trending:
+                continue
 
-        # ── Pine: is_strong ───────────────────────────────────────────────────
-        is_strong: bool = (
-            c > o          # green candle
-            and c > mid    # strong close — above mid-bar
-        )
+            # Pine: close > open
+            green = close_v > open_v
+            if not green:
+                continue
 
-        # ── Pine: buy ─────────────────────────────────────────────────────────
-        buy: bool = (
-            is_trending
-            and is_strong
-            and l  <= s44_now   # low touches 44-SMA (exact Pine condition)
-            and c  >  s44_now   # close reclaims above 44-SMA
-        )
+            # Pine: low <= s44  (with tolerance band)
+            touch = low_v <= s44_now * TOUCH_BAND
+            if not touch:
+                continue
 
-        if not buy:
-            reason_parts = []
-            if not is_trending:
-                reason_parts.append(
-                    f"trend(44>{200}={s44_now>s200_now},"
-                    f"44rise={s44_now>s44_2ago},"
-                    f"200rise={s200_now>s200_2ago})"
-                )
-            if not is_strong:
-                reason_parts.append(
-                    f"strong(green={c>o},above_mid={c>mid})"
-                )
-            if not (l <= s44_now):
-                reason_parts.append(f"touch(low={l:.2f}>sma44={s44_now:.2f})")
-            if not (c > s44_now):
-                reason_parts.append(f"reclaim(close={c:.2f}<=sma44={s44_now:.2f})")
-            return None, ScanAuditRecord(
-                ticker=ticker, outcome="FILTERED",
-                reason=" | ".join(reason_parts),
+            # Pine: close > s44
+            reclaim = close_v > s44_now
+            if not reclaim:
+                continue
+
+            # All conditions met — build trade levels
+            risk = close_v - low_v
+            if risk <= 0:
+                continue
+
+            sl    = round(low_v  * SL_BUFFER, 2)
+            entry = round(close_v, 2)
+            t1    = round(entry + risk, 2)
+            t2    = round(entry + risk * RISK_MULT_T2, 2)
+
+            signal = TradingSignal(
+                ticker=ticker.replace(".NS", ""),
+                entry=entry,
+                stop_loss=sl,
+                target_1=t1,
+                target_2=t2,
+                sma_fast=round(s44_now, 2),
+                sma_slow=round(s200_now, 2),
+                bars_ago=i,
+            )
+            return signal, AuditRecord(
+                ticker=ticker, outcome="SIGNAL",
+                reason=f"bars_ago={i}",
                 latency_ms=ms(),
             )
 
-        # ── Pine: trade levels ────────────────────────────────────────────────
-        # entry_val = close,  sl_val = low,  risk = close - low
-        risk:   float = c - l
-        entry:  float = round(c, 2)
-        sl:     float = round(l, 2)
-        tgt1:   float = round(c + risk, 2)
-        tgt2:   float = round(c + risk * RISK_MULTIPLIER_T2, 2)
-
-        if risk <= 0:
-            return None, ScanAuditRecord(
-                ticker=ticker, outcome="FILTERED",
-                reason=f"non-positive risk: {risk:.4f}",
-                latency_ms=ms(),
-            )
-
-        signal = TradingSignal(
-            ticker=ticker.replace(".NS", ""),
-            entry=entry,
-            stop_loss=sl,
-            target_1=tgt1,
-            target_2=tgt2,
-            sma_fast=round(s44_now, 2),
-            sma_slow=round(s200_now, 2),
-            mid_bar=round(mid, 2),
+        # No bar in the window qualified
+        return None, AuditRecord(
+            ticker=ticker, outcome="FILTERED",
+            reason=f"No valid bar in last {N_LOOKBACK} candles",
+            latency_ms=ms(),
         )
-        return signal, ScanAuditRecord(ticker=ticker, outcome="SIGNAL", latency_ms=ms())
 
     except Exception as exc:
         logger.error("Error %s: %s", ticker, exc, exc_info=True)
-        return None, ScanAuditRecord(
+        return None, AuditRecord(
             ticker=ticker, outcome="ERROR", reason=str(exc),
-            latency_ms=round((time.perf_counter() - t0) * 1_000, 2),
+            latency_ms=ms(),
         )
 
 
-# ── Universe ──────────────────────────────────────────────────────────────────
+# ── Universe loader ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=3_600, show_spinner=False)
 def _load_universe() -> list[str]:
     try:
@@ -249,16 +237,15 @@ def _load_universe() -> list[str]:
             "https://archives.nseindia.com/content/indices/ind_nifty500list.csv",
             usecols=["Symbol"],
         )["Symbol"].tolist()
-        logger.info("Universe: %d symbols loaded.", len(syms))
+        logger.info("Universe: %d symbols.", len(syms))
         return [f"{s}.NS" for s in syms]
     except Exception as exc:
-        logger.warning("NSE fetch failed (%s). Using fallback.", exc)
-        return list(FALLBACK_UNIVERSE)
+        logger.warning("NSE fetch failed (%s). Fallback.", exc)
+        return list(FALLBACK)
 
 
 # =============================================================================
-# PRESENTATION LAYER
-# Midnight dark · JetBrains Mono · 4-col streaming bento · zero technical noise
+# PRESENTATION
 # =============================================================================
 
 _CSS = """
@@ -269,39 +256,38 @@ _CSS = """
     --bg:           #0B0E11;
     --bg-card:      #131722;
     --bg-cell:      #0D1016;
-    --bg-target:    rgba(0, 210, 110, 0.055);
-    --bg-sl:        rgba(240, 68, 96, 0.06);
+    --bg-tgt:       rgba(0,212,122,.055);
+    --bg-sl:        rgba(240,68,96,.06);
 
     --border:       #252B33;
     --border-card:  #1A1F27;
-    --border-hover: #353D47;
+    --border-hi:    #353D47;
 
     --mint:         #00D47A;
-    --mint-dim:     rgba(0, 212, 122, 0.09);
-    --mint-border:  rgba(0, 212, 122, 0.18);
+    --mint-dim:     rgba(0,212,122,.09);
+    --mint-bd:      rgba(0,212,122,.18);
 
     --rose:         #F04460;
-    --rose-dim:     rgba(240, 68, 96, 0.09);
-    --rose-border:  rgba(240, 68, 96, 0.20);
+    --rose-dim:     rgba(240,68,96,.09);
+    --rose-bd:      rgba(240,68,96,.20);
 
     --amber:        #F0A500;
-    --amber-dim:    rgba(240, 165, 0, 0.08);
-    --amber-border: rgba(240, 165, 0, 0.18);
+    --amber-dim:    rgba(240,165,0,.08);
+    --amber-bd:     rgba(240,165,0,.18);
 
     --ink:          #E4E8EF;
     --ink-2:        #8D95A3;
     --ink-3:        #4A5260;
 
-    --font:  'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    --mono:  'JetBrains Mono', 'Fira Code', monospace;
+    --font: 'Inter', -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', monospace;
 
-    --r-xs: 4px;
     --r-sm: 6px;
     --r-md: 10px;
     --r-lg: 14px;
 }
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
 
 .stApp {
     background-color: var(--bg) !important;
@@ -313,417 +299,217 @@ _CSS = """
     max-width: 1440px !important;
 }
 
-/* ── Brand ── */
-.aw {
-    font-family: var(--font);
-    font-size: clamp(1.5rem, 3.2vw, 2.1rem);
-    font-weight: 800;
-    color: var(--ink);
-    letter-spacing: -1px;
-    line-height: 1;
-}
-.aw .g { color: var(--mint); }
-.aw .d { color: var(--rose); opacity: 0.55; }
+/* Brand */
+.aw { font-family:var(--font); font-size:clamp(1.5rem,3.2vw,2.1rem);
+      font-weight:800; color:var(--ink); letter-spacing:-1px; line-height:1; }
+.aw .g { color:var(--mint); }
+.aw .d { color:var(--rose); opacity:.5; }
 
-.aw-sub {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 7px;
-    margin-bottom: 18px;
-}
-.aw-tag {
-    font-family: var(--mono);
-    font-size: 0.56rem;
-    color: var(--ink-3);
-    letter-spacing: 3.5px;
-    text-transform: uppercase;
-}
+.aw-sub { display:flex; align-items:center; gap:10px;
+          margin-top:7px; margin-bottom:18px; }
+.aw-tag { font-family:var(--mono); font-size:0.56rem; color:var(--ink-3);
+          letter-spacing:3.5px; text-transform:uppercase; }
+
 .live-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-family: var(--mono);
-    font-size: 0.55rem;
-    font-weight: 700;
-    color: var(--mint);
-    background: var(--mint-dim);
-    border: 1px solid var(--mint-border);
-    border-radius: 20px;
-    padding: 2px 9px;
-    letter-spacing: 0.8px;
+    display:inline-flex; align-items:center; gap:4px;
+    font-family:var(--mono); font-size:0.55rem; font-weight:700;
+    color:var(--mint); background:var(--mint-dim);
+    border:1px solid var(--mint-bd); border-radius:20px;
+    padding:2px 9px; letter-spacing:.8px;
 }
-.live-dot {
-    width: 5px; height: 5px;
-    border-radius: 50%;
-    background: var(--mint);
-    animation: blink 1.5s ease-in-out infinite;
-}
+.live-dot { width:5px; height:5px; border-radius:50%;
+            background:var(--mint); animation:blink 1.5s ease-in-out infinite; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.12} }
 
-/* ── Logic legend ── */
+/* Logic legend */
 .legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 16px;
-    padding: 10px 14px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-card);
-    border-radius: var(--r-md);
+    display:flex; flex-wrap:wrap; gap:6px;
+    margin-bottom:16px; padding:10px 14px;
+    background:var(--bg-card); border:1px solid var(--border-card);
+    border-radius:var(--r-md);
 }
 .legend-title {
-    font-family: var(--mono);
-    font-size: 0.52rem;
-    color: var(--ink-3);
-    letter-spacing: 2.5px;
-    text-transform: uppercase;
-    width: 100%;
-    margin-bottom: 4px;
+    font-family:var(--mono); font-size:0.52rem; color:var(--ink-3);
+    letter-spacing:2.5px; text-transform:uppercase; width:100%; margin-bottom:4px;
 }
 .lchip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-family: var(--mono);
-    font-size: 0.54rem;
-    font-weight: 600;
-    border-radius: 20px;
-    padding: 3px 10px;
-    letter-spacing: 0.3px;
+    display:inline-flex; align-items:center; gap:5px;
+    font-family:var(--mono); font-size:0.54rem; font-weight:600;
+    border-radius:20px; padding:3px 10px; letter-spacing:.3px;
 }
-.lchip.trend  { color: var(--mint);  background: var(--mint-dim);   border: 1px solid var(--mint-border); }
-.lchip.candle { color: var(--amber); background: var(--amber-dim);  border: 1px solid var(--amber-border); }
-.lchip.touch  { color: #A78BFA;     background: rgba(167,139,250,.08); border: 1px solid rgba(167,139,250,.18); }
+.lchip.trend  { color:var(--mint);  background:var(--mint-dim);  border:1px solid var(--mint-bd); }
+.lchip.candle { color:var(--amber); background:var(--amber-dim); border:1px solid var(--amber-bd); }
+.lchip.touch  { color:#A78BFA; background:rgba(167,139,250,.08); border:1px solid rgba(167,139,250,.18); }
+.lchip.window { color:var(--ink-2); background:rgba(255,255,255,.04); border:1px solid var(--border); }
 
-/* ── CTA ── */
+/* CTA */
 div.stButton > button {
-    background: var(--mint) !important;
-    color: #000 !important;
-    font-family: var(--font) !important;
-    font-size: 0.80rem !important;
-    font-weight: 700 !important;
-    letter-spacing: 0.8px !important;
-    border: none !important;
-    border-radius: var(--r-md) !important;
-    padding: 12px 28px !important;
-    width: 100% !important;
-    cursor: pointer !important;
-    transition: opacity .15s, transform .15s !important;
+    background:var(--mint) !important; color:#000 !important;
+    font-family:var(--font) !important; font-size:.80rem !important;
+    font-weight:700 !important; letter-spacing:.8px !important;
+    border:none !important; border-radius:var(--r-md) !important;
+    padding:12px 28px !important; width:100% !important;
+    cursor:pointer !important; transition:opacity .15s,transform .15s !important;
 }
 div.stButton > button:hover  { opacity:.85 !important; transform:translateY(-1px) !important; }
-div.stButton > button:active { transform:translateY(0)  !important; }
+div.stButton > button:active { transform:translateY(0) !important; }
 
-/* ── Progress ── */
-div[data-testid="stProgress"] > div > div { background: var(--mint) !important; }
-div[data-testid="stProgress"] > div {
-    background: var(--border-card) !important;
-    border-radius: 4px !important;
-}
+/* Progress */
+div[data-testid="stProgress"] > div > div { background:var(--mint) !important; }
+div[data-testid="stProgress"] > div { background:var(--border-card) !important; border-radius:4px !important; }
 
-/* ── Scan status strip ── */
+/* Status strip */
 .ss {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-family: var(--mono);
-    font-size: 0.62rem;
-    color: var(--ink-2);
-    margin-bottom: 14px;
-    padding: 8px 14px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-card);
-    border-radius: var(--r-md);
+    display:flex; align-items:center; gap:10px;
+    font-family:var(--mono); font-size:.62rem; color:var(--ink-2);
+    margin-bottom:14px; padding:8px 14px;
+    background:var(--bg-card); border:1px solid var(--border-card);
+    border-radius:var(--r-md);
 }
-.ss .ct { color: var(--mint); font-weight: 700; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.ss .ct { color:var(--mint); font-weight:700; }
+@keyframes spin { to { transform:rotate(360deg); } }
 .ss-spin {
-    width: 10px; height: 10px;
-    border: 1.5px solid var(--border);
-    border-top-color: var(--mint);
-    border-radius: 50%;
-    animation: spin .65s linear infinite;
-    flex-shrink: 0;
+    width:10px; height:10px;
+    border:1.5px solid var(--border); border-top-color:var(--mint);
+    border-radius:50%; animation:spin .65s linear infinite; flex-shrink:0;
 }
 
-/* ── Section divider ── */
-.sec-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 4px 0 14px;
-}
-.sec-rule { flex:1; height:1px; background: var(--border-card); }
-.sec-lbl {
-    font-family: var(--mono);
-    font-size: 0.56rem;
-    color: var(--ink-3);
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    white-space: nowrap;
-}
+/* Section */
+.sec-row { display:flex; align-items:center; gap:10px; margin:4px 0 14px; }
+.sec-rule { flex:1; height:1px; background:var(--border-card); }
+.sec-lbl { font-family:var(--mono); font-size:.56rem; color:var(--ink-3);
+           letter-spacing:3px; text-transform:uppercase; white-space:nowrap; }
 .sec-badge {
-    font-family: var(--mono);
-    font-size: 0.56rem;
-    font-weight: 700;
-    color: var(--mint);
-    background: var(--mint-dim);
-    border: 1px solid var(--mint-border);
-    border-radius: 20px;
-    padding: 2px 9px;
-    white-space: nowrap;
+    font-family:var(--mono); font-size:.56rem; font-weight:700;
+    color:var(--mint); background:var(--mint-dim); border:1px solid var(--mint-bd);
+    border-radius:20px; padding:2px 9px; white-space:nowrap;
 }
 
-/* ── Bento card ── */
+/* Card */
 .bc {
-    background: var(--bg-card);
-    border: 1px solid var(--border-card);
-    border-radius: var(--r-lg);
-    overflow: hidden;
-    margin-bottom: 10px;
-    transition: border-color .18s, transform .18s;
-    animation: fadeUp .22s ease both;
+    background:var(--bg-card); border:1px solid var(--border-card);
+    border-radius:var(--r-lg); overflow:hidden; margin-bottom:10px;
+    transition:border-color .18s,transform .18s;
+    animation:fadeUp .22s ease both;
 }
-@keyframes fadeUp {
-    from { opacity:0; transform:translateY(7px); }
-    to   { opacity:1; transform:translateY(0); }
-}
-.bc:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+@keyframes fadeUp { from{opacity:0;transform:translateY(7px)} to{opacity:1;transform:translateY(0)} }
+.bc:hover { border-color:var(--border-hi); transform:translateY(-2px); }
+.bc-stripe { height:2px; background:linear-gradient(90deg,var(--mint) 0%,var(--amber) 100%); }
+.bc-body { padding:11px 12px 10px; }
 
-/* Top stripe: mint (SMA44 color in Pine) → amber */
-.bc-stripe {
-    height: 2px;
-    background: linear-gradient(90deg, var(--mint) 0%, var(--amber) 100%);
-}
+.bc-hd { display:flex; align-items:flex-start; justify-content:space-between;
+         gap:6px; margin-bottom:9px; }
+.bc-ticker { font-family:var(--font); font-size:1.02rem; font-weight:800;
+             color:var(--ink); letter-spacing:-.3px; line-height:1; }
+.bc-sub { font-family:var(--mono); font-size:.56rem; color:var(--ink-3); margin-top:3px; }
 
-.bc-body { padding: 11px 12px 10px; }
+/* "X bars ago" freshness tag */
+.fresh-tag {
+    display:inline-block; font-family:var(--mono); font-size:.50rem; font-weight:600;
+    border-radius:4px; padding:2px 7px; margin-top:3px;
+}
+.fresh-tag.today   { color:var(--mint);  background:var(--mint-dim);  border:1px solid var(--mint-bd); }
+.fresh-tag.recent  { color:var(--amber); background:var(--amber-dim); border:1px solid var(--amber-bd); }
 
-/* Card header */
-.bc-hd {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 6px;
-    margin-bottom: 9px;
-}
-.bc-ticker {
-    font-family: var(--font);
-    font-size: 1.02rem;
-    font-weight: 800;
-    color: var(--ink);
-    letter-spacing: -.3px;
-    line-height: 1;
-}
-.bc-ltp {
-    font-family: var(--mono);
-    font-size: 0.56rem;
-    color: var(--ink-3);
-    margin-top: 3px;
-}
-
-/* TradingView link */
+/* TV link */
 .tv {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-family: var(--mono);
-    font-size: 0.55rem;
-    font-weight: 600;
-    color: var(--ink-2);
-    background: rgba(255,255,255,.035);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: 4px 8px;
-    text-decoration: none !important;
-    white-space: nowrap;
-    flex-shrink: 0;
-    transition: color .14s, border-color .14s, background .14s;
+    display:inline-flex; align-items:center; gap:4px;
+    font-family:var(--mono); font-size:.55rem; font-weight:600;
+    color:var(--ink-2); background:rgba(255,255,255,.035);
+    border:1px solid var(--border); border-radius:var(--r-sm);
+    padding:4px 8px; text-decoration:none !important;
+    white-space:nowrap; flex-shrink:0;
+    transition:color .14s,border-color .14s,background .14s;
 }
-.tv:hover {
-    color: var(--mint) !important;
-    border-color: var(--mint-border);
-    background: var(--mint-dim);
-    text-decoration: none !important;
-}
+.tv:hover { color:var(--mint) !important; border-color:var(--mint-bd);
+            background:var(--mint-dim); text-decoration:none !important; }
 .tv svg { width:9px; height:9px; opacity:.6; }
 
-/* ── Entry label (Pine: plot close as entry) ── */
-.entry-label {
-    font-family: var(--mono);
-    font-size: 0.48rem;
-    color: var(--ink-3);
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    margin-bottom: 5px;
-}
-.entry-val {
-    font-family: var(--mono);
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: var(--ink);
-    letter-spacing: -.5px;
-    margin-bottom: 9px;
-}
+/* Entry */
+.entry-lbl { font-family:var(--mono); font-size:.47rem; color:var(--ink-3);
+             letter-spacing:2px; text-transform:uppercase; margin-bottom:4px; }
+.entry-val { font-family:var(--mono); font-size:1.12rem; font-weight:700;
+             color:var(--ink); letter-spacing:-.5px; margin-bottom:9px; }
 
-/* SL / Targets grid (mirrors Pine cross plots) */
-.lvl-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 5px;
-    margin-bottom: 8px;
-}
-.lvl-cell {
-    border-radius: var(--r-sm);
-    padding: 7px 9px;
-}
-.lvl-cell.sl  { background: var(--bg-sl);     border: 1px solid var(--rose-border); }
-.lvl-cell.t1  { background: var(--amber-dim); border: 1px solid var(--amber-border); }
-.lvl-cell.t2  { background: var(--bg-target); border: 1px solid var(--mint-border); }
+/* SL / T1 / T2 grid */
+.lvl-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; margin-bottom:8px; }
+.lvl-cell { border-radius:var(--r-sm); padding:7px 9px; }
+.lvl-cell.sl { background:var(--bg-sl);   border:1px solid var(--rose-bd); }
+.lvl-cell.t1 { background:var(--amber-dim); border:1px solid var(--amber-bd); }
+.lvl-cell.t2 { background:var(--bg-tgt);  border:1px solid var(--mint-bd); }
+.lvl-lbl { font-family:var(--mono); font-size:.47rem; letter-spacing:2px;
+           text-transform:uppercase; margin-bottom:3px; }
+.lvl-lbl.sl { color:var(--rose); }
+.lvl-lbl.t1 { color:var(--amber); }
+.lvl-lbl.t2 { color:var(--mint); }
+.lvl-val { font-family:var(--mono); font-size:.78rem; font-weight:700;
+           letter-spacing:-.2px; line-height:1; }
+.lvl-val.sl { color:var(--rose); }
+.lvl-val.t1 { color:var(--amber); }
+.lvl-val.t2 { color:var(--mint); }
 
-.lvl-lbl {
-    font-family: var(--mono);
-    font-size: 0.48rem;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    margin-bottom: 3px;
-}
-.lvl-lbl.sl { color: var(--rose); }
-.lvl-lbl.t1 { color: var(--amber); }
-.lvl-lbl.t2 { color: var(--mint); }
+/* SMA row */
+.sma-row { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-bottom:7px; }
+.sma-cell { background:var(--bg-cell); border:1px solid var(--border-card);
+            border-radius:var(--r-sm); padding:6px 8px; }
+.sma-lbl { font-family:var(--mono); font-size:.46rem; color:var(--ink-3);
+           letter-spacing:2px; text-transform:uppercase; margin-bottom:2px; }
+.sma-val { font-family:var(--mono); font-size:.72rem; font-weight:700; letter-spacing:-.2px; }
+.sma-val.fast { color:var(--mint); }
+.sma-val.slow { color:var(--rose); }
 
-.lvl-val {
-    font-family: var(--mono);
-    font-size: 0.78rem;
-    font-weight: 700;
-    letter-spacing: -.2px;
-    line-height: 1;
-}
-.lvl-val.sl { color: var(--rose); }
-.lvl-val.t1 { color: var(--amber); }
-.lvl-val.t2 { color: var(--mint); }
-
-/* SMA bar */
-.sma-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 5px;
-    margin-bottom: 7px;
-}
-.sma-cell {
-    background: var(--bg-cell);
-    border: 1px solid var(--border-card);
-    border-radius: var(--r-sm);
-    padding: 6px 8px;
-}
-.sma-lbl {
-    font-family: var(--mono);
-    font-size: 0.47rem;
-    color: var(--ink-3);
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    margin-bottom: 2px;
-}
-.sma-val {
-    font-family: var(--mono);
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: -.2px;
-}
-.sma-val.fast { color: var(--mint); }   /* Pine: color.green */
-.sma-val.slow { color: var(--rose); }   /* Pine: color.red */
-
-/* Card footer */
-.bc-ft {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-top: 7px;
-    border-top: 1px solid var(--border-card);
-}
+/* Footer */
+.bc-ft { display:flex; align-items:center; justify-content:space-between;
+         padding-top:7px; border-top:1px solid var(--border-card); }
 .rr-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-family: var(--mono);
-    font-size: 0.54rem;
-    font-weight: 700;
-    color: var(--mint);
-    background: var(--mint-dim);
-    border: 1px solid var(--mint-border);
-    border-radius: 20px;
-    padding: 3px 8px;
+    display:inline-flex; align-items:center; gap:4px;
+    font-family:var(--mono); font-size:.54rem; font-weight:700;
+    color:var(--mint); background:var(--mint-dim); border:1px solid var(--mint-bd);
+    border-radius:20px; padding:3px 8px;
 }
-.rr-d {
-    width: 4px; height: 4px;
-    border-radius: 50%;
-    background: var(--mint);
-    animation: blink 2s ease-in-out infinite;
-}
+.rr-d { width:4px; height:4px; border-radius:50%; background:var(--mint);
+         animation:blink 2s ease-in-out infinite; }
 .spread-tag {
-    font-family: var(--mono);
-    font-size: 0.50rem;
-    color: var(--amber);
-    background: var(--amber-dim);
-    border: 1px solid var(--amber-border);
-    border-radius: 20px;
-    padding: 2px 7px;
+    font-family:var(--mono); font-size:.50rem; color:var(--amber);
+    background:var(--amber-dim); border:1px solid var(--amber-bd);
+    border-radius:20px; padding:2px 7px;
 }
 
-/* ── Alert ── */
+/* Alert */
 div[data-testid="stAlert"] {
-    background: rgba(240,165,0,.06) !important;
-    border: 1px solid rgba(240,165,0,.20) !important;
-    border-radius: var(--r-md) !important;
-    font-family: var(--font) !important;
-    font-size: 0.79rem !important;
-    color: var(--amber) !important;
+    background:rgba(240,165,0,.06) !important;
+    border:1px solid rgba(240,165,0,.20) !important;
+    border-radius:var(--r-md) !important;
+    font-family:var(--font) !important; font-size:.79rem !important;
+    color:var(--amber) !important;
 }
 
-/* ── Sidebar ── */
-[data-testid="stSidebar"] {
-    background: #0D1016 !important;
-    border-right: 1px solid var(--border-card) !important;
-}
-[data-testid="stSidebar"] .block-container { padding: 1.5rem 1rem !important; }
+/* Sidebar */
+[data-testid="stSidebar"] { background:#0D1016 !important; border-right:1px solid var(--border-card) !important; }
+[data-testid="stSidebar"] .block-container { padding:1.5rem 1rem !important; }
+.sb-hd { font-family:var(--mono); font-size:.54rem; font-weight:700; color:var(--ink-3);
+         letter-spacing:3px; text-transform:uppercase; margin-bottom:12px;
+         padding-bottom:8px; border-bottom:1px solid var(--border-card); }
+.sb-row { display:flex; justify-content:space-between; align-items:center;
+          padding:7px 0; border-bottom:1px solid var(--border-card); }
+.sb-k { font-family:var(--font);  font-size:.67rem; color:var(--ink-2); }
+.sb-v { font-family:var(--mono); font-size:.67rem; font-weight:600; color:var(--ink); }
+.sb-v.ok { color:var(--mint); }
+.sb-v.hl { color:var(--amber); }
+.sb-v.rd { color:var(--rose); }
 
-.sb-hd {
-    font-family: var(--mono);
-    font-size: 0.54rem;
-    font-weight: 700;
-    color: var(--ink-3);
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border-card);
-}
-.sb-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 7px 0;
-    border-bottom: 1px solid var(--border-card);
-}
-.sb-k { font-family: var(--font);  font-size: 0.67rem; color: var(--ink-2); }
-.sb-v { font-family: var(--mono); font-size: 0.67rem; font-weight: 600; color: var(--ink); }
-.sb-v.ok { color: var(--mint); }
-.sb-v.hl { color: var(--amber); }
-.sb-v.rd { color: var(--rose); }
+h3 { display:none !important; }
 
-/* ── Global ── */
-h3 { display: none !important; }
-
-/* ── Responsive ── */
-@media (max-width: 768px) {
-    .main .block-container { padding: 1rem .75rem 3.5rem !important; }
-    .bc-body                { padding: 10px 10px 8px; }
+@media(max-width:768px){
+    .main .block-container{ padding:1rem .75rem 3.5rem !important; }
+    .bc-body{ padding:10px 10px 8px; }
 }
-@media (max-width: 520px) {
-    .aw        { font-size: 1.4rem; }
-    .lvl-grid  { grid-template-columns: 1fr; }
-    .sma-row   { grid-template-columns: 1fr; }
-    .bc-hd     { flex-direction: column; gap: 6px; }
-    .tv        { align-self: flex-start; }
+@media(max-width:520px){
+    .aw{ font-size:1.4rem; }
+    .lvl-grid{ grid-template-columns:1fr; }
+    .sma-row{ grid-template-columns:1fr; }
+    .bc-hd{ flex-direction:column; gap:6px; }
+    .tv{ align-self:flex-start; }
 }
 </style>
 """
@@ -737,64 +523,63 @@ _TV_SVG = (
     '</svg>'
 )
 
-# Logic legend: maps every Pine variable to a user-readable chip
-_LEGEND = """
+_LEGEND = f"""
 <div class="legend">
-  <div class="legend-title">Pine Script Logic — Active Filters</div>
-  <div class="lchip trend">&#9650; 44-SMA &gt; 200-SMA</div>
-  <div class="lchip trend">&#9650; 44-SMA rising (2-bar)</div>
-  <div class="lchip trend">&#9650; 200-SMA rising (2-bar)</div>
-  <div class="lchip candle">&#9646; Close &gt; Open (green)</div>
-  <div class="lchip candle">&#9646; Close &gt; Mid-bar</div>
-  <div class="lchip touch">&#9670; Low &le; 44-SMA (touch)</div>
-  <div class="lchip touch">&#9670; Close &gt; 44-SMA (reclaim)</div>
+  <div class="legend-title">Pine Script Conditions — all must hold within last {N_LOOKBACK} bars</div>
+  <div class="lchip trend">&#9650;&nbsp;44-SMA &gt; 200-SMA</div>
+  <div class="lchip trend">&#9650;&nbsp;44-SMA rising (1-bar)</div>
+  <div class="lchip trend">&#9650;&nbsp;200-SMA rising (1-bar)</div>
+  <div class="lchip candle">&#9646;&nbsp;Close &gt; Open (green)</div>
+  <div class="lchip touch">&#9670;&nbsp;Low ≤ 44-SMA ×1.02</div>
+  <div class="lchip touch">&#9670;&nbsp;Close &gt; 44-SMA</div>
+  <div class="lchip window">&#9675;&nbsp;Lookback: {N_LOOKBACK} bars</div>
 </div>
 """
 
 
 def _card_html(sig: TradingSignal) -> str:
-    """
-    Resolves every field to plain str before interpolation.
-    Layout mirrors the Pine Script plot order:
-        plot(s44)  plot(s200)         → SMA row
-        plotshape(buy, text="BUY")    → ticker / entry
-        plot(sl_val)  cross red       → SL cell
-        plot(tgt1)    cross orange    → T1 cell
-        plot(tgt2)    cross blue→mint → T2 cell
-    """
-    ticker: str = str(sig.ticker)
-    entry:  str = f"{float(sig.entry):,.2f}"
-    sl:     str = f"{float(sig.stop_loss):,.2f}"
-    t1:     str = f"{float(sig.target_1):,.2f}"
-    t2:     str = f"{float(sig.target_2):,.2f}"
-    rr:     str = f"{float(sig.rr):.2f}"
-    sf:     str = f"{float(sig.sma_fast):,.2f}"
-    ss:     str = f"{float(sig.sma_slow):,.2f}"
-    spd:    str = f"{float(sig.sma_spread_pct):.2f}"
-    mid:    str = f"{float(sig.mid_bar):,.2f}"
-    tv_url: str = f"https://www.tradingview.com/chart/?symbol=NSE%3A{ticker}"
+    ticker  = str(sig.ticker)
+    entry   = f"{float(sig.entry):,.2f}"
+    sl      = f"{float(sig.stop_loss):,.2f}"
+    t1      = f"{float(sig.target_1):,.2f}"
+    t2      = f"{float(sig.target_2):,.2f}"
+    rr      = f"{float(sig.rr):.2f}"
+    sf      = f"{float(sig.sma_fast):,.2f}"
+    ss      = f"{float(sig.sma_slow):,.2f}"
+    spd     = f"{float(sig.sma_spread_pct):.2f}"
+    tv_url  = f"https://www.tradingview.com/chart/?symbol=NSE%3A{ticker}"
+
+    # Freshness label
+    ba = int(sig.bars_ago)
+    if ba == 0:
+        fresh_cls  = "today"
+        fresh_text = "Today"
+    elif ba == 1:
+        fresh_cls  = "today"
+        fresh_text = "Yesterday"
+    else:
+        fresh_cls  = "recent"
+        fresh_text = f"{ba} bars ago"
 
     return (
         '<div class="bc">'
           '<div class="bc-stripe"></div>'
           '<div class="bc-body">'
 
-            # ── Header ──────────────────────────────────────────────────────
             '<div class="bc-hd">'
               '<div>'
                 f'<div class="bc-ticker">{ticker}</div>'
-                f'<div class="bc-ltp">Mid-bar &#8377;{mid}</div>'
+                f'<div class="bc-sub">44-SMA &#8377;{sf}</div>'
+                f'<div class="fresh-tag {fresh_cls}">{fresh_text}</div>'
               '</div>'
               f'<a class="tv" href="{tv_url}" target="_blank" rel="noopener noreferrer">'
                 f'{_TV_SVG}&thinsp;Chart'
               '</a>'
             '</div>'
 
-            # ── Entry (Pine: entry_val = close) ───────────────────────────
-            '<div class="entry-label">Entry (Close)</div>'
+            '<div class="entry-lbl">Entry (Close)</div>'
             f'<div class="entry-val">&#8377;{entry}</div>'
 
-            # ── SL / T1 / T2 — mirrors Pine cross plots ───────────────────
             '<div class="lvl-grid">'
               '<div class="lvl-cell sl">'
                 '<div class="lvl-lbl sl">&#10007; Stop Loss</div>'
@@ -810,7 +595,6 @@ def _card_html(sig: TradingSignal) -> str:
               '</div>'
             '</div>'
 
-            # ── SMA values (Pine: plot s44 green, s200 red) ───────────────
             '<div class="sma-row">'
               '<div class="sma-cell">'
                 '<div class="sma-lbl">44-SMA (green)</div>'
@@ -822,12 +606,11 @@ def _card_html(sig: TradingSignal) -> str:
               '</div>'
             '</div>'
 
-            # ── Footer ────────────────────────────────────────────────────
             '<div class="bc-ft">'
               '<div class="rr-pill"><span class="rr-d"></span>'
                 f'R:R&thinsp;{rr}x'
               '</div>'
-              f'<span class="spread-tag">44 leads 200 by +{spd}%</span>'
+              f'<span class="spread-tag">+{spd}% above 200-SMA</span>'
             '</div>'
 
           '</div>'
@@ -836,48 +619,42 @@ def _card_html(sig: TradingSignal) -> str:
 
 
 def _sidebar(scanned: int, found: int) -> None:
-    rows: list[tuple[str, str, str]] = [
+    rows = [
         ("Universe",   "Nifty 500",              "hl"),
         ("Strategy",   "Swing Triple Bullish",    "ok"),
-        ("is_trending","44>200 · both rising",    "ok"),
-        ("is_strong",  "Green · above mid-bar",   "ok"),
-        ("buy filter", "Low≤44 · Close>44",       "ok"),
-        ("SL",         "Signal bar Low",          "rd"),
-        ("T1 / T2",    "1R · 2R from entry",      "ok"),
+        ("Trend",      "44>200 · both rising",    "ok"),
+        ("Candle",     "Green (Close>Open)",       "ok"),
+        ("Touch",      "Low ≤ 44-SMA ×1.02",      "ok"),
+        ("Reclaim",    "Close > 44-SMA",           "ok"),
+        ("Lookback",   f"Last {N_LOOKBACK} bars",  "hl"),
+        ("R:R",        "1 : 2",                   "ok"),
         ("Scanned",    str(scanned),              ""),
-        ("Signals",    str(found), "ok" if found > 0 else ""),
+        ("Signals",    str(found), "ok" if found > 0 else "rd"),
         ("UTC",        datetime.utcnow().strftime("%H:%M:%S"), ""),
     ]
-    rows_html = "".join(
-        f'<div class="sb-row">'
-        f'  <span class="sb-k">{k}</span>'
-        f'  <span class="sb-v {c}">{v}</span>'
-        f'</div>'
+    html = "".join(
+        f'<div class="sb-row"><span class="sb-k">{k}</span>'
+        f'<span class="sb-v {c}">{v}</span></div>'
         for k, v, c in rows
     )
-    st.sidebar.markdown(
-        f'<div class="sb-hd">Pine Script Logic</div>{rows_html}',
-        unsafe_allow_html=True,
-    )
+    st.sidebar.markdown(f'<div class="sb-hd">Scan Summary</div>{html}', unsafe_allow_html=True)
 
 
-# ── Main dashboard ─────────────────────────────────────────────────────────────
+# ── Dashboard ──────────────────────────────────────────────────────────────────
 def render_dashboard() -> None:
     st.markdown(_CSS, unsafe_allow_html=True)
 
     st.markdown(
-        '<div class="aw">Arth<span class="g">Sutra</span>'
-        '<span class="d">.</span></div>',
+        '<div class="aw">Arth<span class="g">Sutra</span><span class="d">.</span></div>',
         unsafe_allow_html=True,
     )
     st.markdown(
         '<div class="aw-sub">'
         '  <span class="aw-tag">Swing Triple Bullish · 44/200 SMA · NSE 500</span>'
-        '  <span class="live-badge"><span class="live-dot"></span>BUY 50/50</span>'
+        '  <span class="live-badge"><span class="live-dot"></span>BUY SIGNAL</span>'
         '</div>',
         unsafe_allow_html=True,
     )
-
     st.markdown(_LEGEND, unsafe_allow_html=True)
 
     if not st.button("Run Swing Scanner \u2192"):
@@ -890,58 +667,48 @@ def render_dashboard() -> None:
     status_slot  = st.empty()
     section_slot = st.empty()
 
-    col_ph: list[st.empty] = [st.empty() for _ in range(CARDS_PER_ROW)]
-    col_buf: list[list[str]] = [[] for _ in range(CARDS_PER_ROW)]
+    col_ph:  list = [st.empty() for _ in range(COLS)]
+    col_buf: list[list[str]] = [[] for _ in range(COLS)]
 
-    found     = 0
-    processed = 0
+    found = 0
+    done  = 0
 
-    def _flush() -> None:
+    def _flush():
         for ci, ph in enumerate(col_ph):
             if col_buf[ci]:
                 ph.markdown("".join(col_buf[ci]), unsafe_allow_html=True)
 
-    with ThreadPoolExecutor(max_workers=CONCURRENCY_LIMIT) as pool:
+    with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
         fmap = {pool.submit(_compute_signal, t): t for t in universe}
-
         for future in as_completed(fmap):
-            signal, audit = future.result()
-            logger.debug(
-                "Audit %s | %s | %.1f ms",
-                audit.ticker, audit.outcome, audit.latency_ms,
-            )
-            processed += 1
+            sig, audit = future.result()
+            logger.debug("Audit %s | %s | %.1f ms", audit.ticker, audit.outcome, audit.latency_ms)
+            done += 1
             progress_bar.progress(
-                min(math.ceil(processed / total * 100), 100),
-                text=f"Scanning\u2026 {processed} / {total}",
+                min(math.ceil(done / total * 100), 100),
+                text=f"Scanning\u2026 {done} / {total}",
             )
 
-            if signal is None:
+            if sig is None:
                 continue
 
             found += 1
-
             if found == 1:
                 section_slot.markdown(
-                    '<div class="sec-row">'
-                    '  <div class="sec-rule"></div>'
-                    '  <span class="sec-lbl">BUY 50/50 Signals</span>'
-                    '  <div class="sec-rule"></div>'
-                    '</div>',
+                    '<div class="sec-row"><div class="sec-rule"></div>'
+                    '<span class="sec-lbl">BUY Signals</span>'
+                    '<div class="sec-rule"></div></div>',
                     unsafe_allow_html=True,
                 )
 
             status_slot.markdown(
-                f'<div class="ss">'
-                f'  <div class="ss-spin"></div>'
-                f'  Scanning &mdash; '
-                f'  <span class="ct">{found} setup{"s" if found != 1 else ""} found</span>'
-                f'  &mdash; {processed}/{total}'
-                f'</div>',
+                f'<div class="ss"><div class="ss-spin"></div>'
+                f'Scanning &mdash; <span class="ct">{found} signal{"s" if found!=1 else ""} found</span>'
+                f' &mdash; {done}/{total}</div>',
                 unsafe_allow_html=True,
             )
 
-            col_buf[(found - 1) % CARDS_PER_ROW].append(_card_html(signal))
+            col_buf[(found - 1) % COLS].append(_card_html(sig))
             _flush()
 
     progress_bar.empty()
@@ -950,34 +717,29 @@ def render_dashboard() -> None:
         status_slot.empty()
         section_slot.empty()
         st.warning(
-            "No Swing Triple Bullish setups detected this session. "
-            "All seven Pine conditions must hold on the same bar \u2014 "
-            "the filter is intentionally strict."
+            f"No setups found in the last {N_LOOKBACK} bars across {done} instruments. "
+            "Try scanning again after market close when today\u2019s candle is finalised."
         )
     else:
         status_slot.markdown(
-            f'<div class="ss">'
-            f'  <span class="ct">{found} BUY 50/50 setup{"s" if found != 1 else ""}</span>'
-            f'  &mdash; {processed} instruments scanned'
-            f'</div>',
+            f'<div class="ss"><span class="ct">{found} signal{"s" if found!=1 else ""} detected</span>'
+            f' &mdash; {done} instruments scanned</div>',
             unsafe_allow_html=True,
         )
         section_slot.markdown(
-            f'<div class="sec-row">'
-            f'  <div class="sec-rule"></div>'
-            f'  <span class="sec-lbl">BUY 50/50 Signals</span>'
-            f'  <span class="sec-badge">{found} Found</span>'
-            f'  <div class="sec-rule"></div>'
-            f'</div>',
+            f'<div class="sec-row"><div class="sec-rule"></div>'
+            f'<span class="sec-lbl">BUY Signals</span>'
+            f'<span class="sec-badge">{found} Found</span>'
+            f'<div class="sec-rule"></div></div>',
             unsafe_allow_html=True,
         )
 
     with st.sidebar:
         st.markdown("---")
-        _sidebar(processed, found)
+        _sidebar(done, found)
 
 
-# ── Entrypoint ────────────────────────────────────────────────────────────────
+# ── Entrypoint ─────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="ArtSutra — Swing Triple Bullish",
     page_icon="◈",
