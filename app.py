@@ -1,41 +1,73 @@
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import pandas_ta as ta
 import datetime
 
-def check_strategy(ticker):
+# 1. Page Setup
+st.set_page_config(page_title="44-200 SMA Scanner", layout="wide")
+st.title("📈 Swing Triple Bullish Scanner")
+st.write(f"Current System Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+# 2. Ticker List (Using .NS for Indian Stocks)
+tickers = ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "BHARTIARTL.NS"]
+
+def check_strategy(symbol):
     try:
-        # 1. Determine the "End Date" for analysis
-        today = datetime.datetime.now()
+        # Download 2 years of data to ensure 200 SMA is accurate
+        df = yf.download(symbol, period="2y", interval="1d", progress=False)
         
-        # If Saturday (5) or Sunday (6), set end_date to Friday
-        if today.weekday() == 5: # Saturday
-            end_date = today - datetime.timedelta(days=1)
-        elif today.weekday() == 6: # Sunday
-            end_date = today - datetime.timedelta(days=2)
-        else:
-            end_date = today
-            
-        # 2. Fetch data up to that Friday
-        # Use 'period' to ensure we have enough history for the 200 SMA
-        data = yf.download(ticker, period="2y", interval="1d", progress=False)
+        if df.empty or len(df) < 200:
+            return None
+
+        # Handle YFinance Multi-Index if it occurs
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        # Calculate SMAs
+        df['sma44'] = ta.sma(df['Close'], length=44)
+        df['sma200'] = ta.sma(df['Close'], length=200)
+
+        # Get last 3 rows for trend/candle logic
+        curr = df.iloc[-1]
+        prev2 = df.iloc[-3]
+
+        # --- THE LOGIC ---
+        # 1. Trend: 44 > 200 AND 44 is rising
+        is_trending = float(curr['sma44']) > float(curr['sma200']) and float(curr['sma44']) > float(prev2['sma44'])
         
-        if len(data) < 200: return None
-        
-        # Calculate Indicators
-        data['sma44'] = ta.sma(data['Close'], length=44)
-        data['sma200'] = ta.sma(data['Close'], length=200)
-        
-        # Get the very last available trading row (Friday's close)
-        curr = data.iloc[-1]
-        prev2 = data.iloc[-3]
-        
-        # Triple Bullish Logic
-        is_trending = curr['sma44'] > curr['sma200'] and curr['sma44'] > prev2['sma44']
-        is_strong = curr['Close'] > curr['Open'] and curr['Low'] <= curr['sma44']
-        
-        if is_trending and is_strong:
+        # 2. Candle: Green candle AND Low touched or went below 44 SMA
+        is_bullish_candle = float(curr['Close']) > float(curr['Open'])
+        is_touching_44 = float(curr['Low']) <= float(curr['sma44'])
+
+        if is_trending and is_bullish_candle and is_touching_44:
             return {
-                "Ticker": ticker,
-                "Friday Close": round(float(curr['Close']), 2),
-                "44 SMA": round(float(curr['sma44']), 2)
+                "Ticker": symbol,
+                "Price": round(float(curr['Close']), 2),
+                "44 SMA": round(float(curr['sma44']), 2),
+                "Status": "🔥 HIT"
             }
+            
     except Exception as e:
+        # This prevents the app from going blank if one stock errors out
+        st.error(f"Error processing {symbol}: {e}")
         return None
+    return None
+
+# 3. UI Logic
+if st.button("🔍 Run Friday Analysis"):
+    hits = []
+    progress_bar = st.progress(0)
+    
+    for i, t in enumerate(tickers):
+        res = check_strategy(t)
+        if res:
+            hits.append(res)
+        progress_bar.progress((i + 1) / len(tickers))
+    
+    if hits:
+        st.success(f"Found {len(hits)} signals!")
+        st.table(pd.DataFrame(hits))
+    else:
+        st.info("No 'Triple Bullish' hits found for the selected stocks on Friday's close.")
+        st.write("Tip: Markets were down on Friday, so most stocks likely had Red candles (failing the strategy).")
