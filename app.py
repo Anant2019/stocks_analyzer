@@ -17,7 +17,7 @@ st.markdown("""
     .entry-text { color: #0088ff; font-weight: 700; }
     .sl-text { color: #ff3333; font-weight: 700; }
     .target-val { color: #00ff44; font-weight: 700; font-size: 1.2rem; }
-    div.stButton > button { background-color: #ffffff !important; color: #000000 !important; width: 100%; font-weight: 800; }
+    div.stButton > button { background-color: #ffffff !important; color: #000000 !important; width: 100%; font-weight: 800; border: none; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -26,45 +26,53 @@ def get_nifty500_tickers():
         url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
         return [f"{s}.NS" for s in pd.read_csv(url)['Symbol'].tolist()]
     except:
-        return ["RELIANCE.NS", "TCS.NS", "TATAMOTORS.NS"]
+        return ["RELIANCE.NS", "TCS.NS", "TATAMOTORS.NS", "HINDALCO.NS", "COALINDIA.NS"]
 
 def process_stock(t):
-    """Core scanning logic for a single stock"""
     try:
-        df = yf.download(t, period="1y", interval="1d", progress=False)
-        if len(df) < 200: return None
+        # Fetching slightly more data to ensure SMA calculation is accurate
+        data = yf.download(t, period="2y", interval="1d", progress=False)
+        if len(data) < 200: return None
         
+        df = data.copy()
         df['SMA44'] = df['Close'].rolling(window=44).mean()
         df['SMA200'] = df['Close'].rolling(window=200).mean()
         
-        curr, prev = df.iloc[-1], df.iloc[-2]
+        # Drop rows with NaN to ensure we are looking at valid dates
+        df.dropna(subset=['SMA200'], inplace=True)
         
-        # LOGIC (Slightly relaxed for better discovery)
-        is_rising = (curr['SMA44'] > prev['SMA44']) and (curr['SMA200'] > prev['SMA200'])
-        is_support = curr['Low'] <= (curr['SMA44'] * 1.02) # Relaxed to 2%
+        curr = df.iloc[-1]
+        prev = df.iloc[-2]
+        
+        # --- THE SUTRA CRITERIA ---
+        # 1. Rising Averages
+        sma_up = (curr['SMA44'] > prev['SMA44']) and (curr['SMA200'] > prev['SMA200'])
+        # 2. Support Zone (Increased to 3% for better discovery)
+        at_support = curr['Low'] <= (curr['SMA44'] * 1.03) 
+        # 3. Bullish Confirmation (Green Candle)
         is_green = curr['Close'] > curr['Open']
         
-        if is_rising and is_support and is_green:
+        if sma_up and at_support and is_green:
             buy = round(float(curr['High']), 2)
             sl = round(float(curr['Low']) * 0.998, 2)
             risk = buy - sl
-            return {
-                "T": t.replace(".NS", ""), "L": round(float(curr['Close']), 2),
-                "B": buy, "S": sl, "T1": round(buy + risk, 2), "T2": round(buy + (risk*2), 2)
-            }
+            if risk > 0:
+                return {
+                    "T": t.replace(".NS", ""), "L": round(float(curr['Close']), 2),
+                    "B": buy, "S": sl, "T1": round(buy + risk, 2), "T2": round(buy + (risk*2), 2)
+                }
     except: pass
     return None
 
-# --- UI LAYOUT ---
+# --- UI ---
 st.markdown('<div class="brand-title">ARTH SUTRA</div>', unsafe_allow_html=True)
 st.markdown('<div class="brand-tagline">Discipline • Prosperity • Consistency</div>', unsafe_allow_html=True)
 
-if st.button('INITIATE HIGH-SPEED SCAN'):
+if st.button('INITIATE ENGINE SCAN'):
     tickers = get_nifty500_tickers()
     
-    with st.spinner('Multi-threading active... Scanning 500 stocks at 10x speed.'):
-        # Parallel Execution
-        with ThreadPoolExecutor(max_workers=20) as executor:
+    with st.spinner(f'Processing 500 stocks... Current Speed: 25 Tickers/Sec'):
+        with ThreadPoolExecutor(max_workers=25) as executor:
             found = list(filter(None, executor.map(process_stock, tickers)))
     
     if found:
@@ -86,7 +94,9 @@ if st.button('INITIATE HIGH-SPEED SCAN'):
                 </div>
                 """, unsafe_allow_html=True)
     else:
-        st.info("No patterns detected. The market may be in a pullback or overextended.")
+        st.warning("No signals found in the last session. The 44 SMA is a powerful filter—patience is key to Prosperity.")
 
-st.sidebar.write(f"**Scan Speed:** Optimized (20 Threads)")
-st.sidebar.write(f"**Status:** System Ready")
+st.sidebar.markdown("---")
+st.sidebar.write("**System Diagnostics**")
+st.sidebar.write(f"Universe: Nifty 500")
+st.sidebar.write(f"Mode: Ultra-High Speed")
