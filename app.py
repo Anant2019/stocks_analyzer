@@ -3,68 +3,80 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
 
-# --- CONFIGURATION ---
-st.set_page_config(page_title="Nifty 500 Bullish Scanner", layout="wide")
+# --- FORCED DARK MODE CONFIG ---
+st.set_page_config(page_title="Nifty 500 Scanner", layout="wide")
 
-# --- CUSTOM TRENDY CSS ---
+# --- CUSTOM ULTRA-DARK CSS ---
 st.markdown("""
     <style>
+    /* Full screen black background */
     .stApp {
-        background-color: #f8f9fa;
+        background-color: #000000;
+        color: #ffffff;
     }
+    
+    /* Card Design */
     .stock-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-        border: 1px solid #eef2f6;
+        background-color: #111111;
+        padding: 24px;
+        border-radius: 12px;
+        border: 1px solid #222222;
         margin-bottom: 20px;
-        transition: transform 0.2s ease;
+        transition: border 0.3s ease;
     }
     .stock-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+        border: 1px solid #33bbff; /* Subtle blue glow on hover */
     }
+    
+    /* Typography */
     .ticker-name {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #1e293b;
-        margin-bottom: 5px;
+        font-size: 1.6rem;
+        font-weight: 800;
+        color: #ffffff;
+        letter-spacing: -0.5px;
     }
     .price-badge {
-        background-color: #f1f5f9;
-        padding: 4px 10px;
-        border-radius: 8px;
-        font-weight: 600;
-        color: #475569;
+        color: #888888;
+        font-size: 0.9rem;
+        font-family: monospace;
     }
-    .target-green {
-        background-color: #dcfce7;
-        color: #166534;
-        padding: 8px;
-        border-radius: 10px;
-        margin-top: 5px;
-        font-weight: 600;
+    
+    /* Action Colors */
+    .entry-text { color: #33bbff; font-weight: 700; }
+    .sl-text { color: #ff4444; font-weight: 700; }
+    .target-box {
+        background-color: #0a2a12;
+        color: #00ff44;
+        padding: 10px;
+        border-radius: 6px;
+        margin-top: 8px;
+        font-weight: 700;
         text-align: center;
+        border: 1px solid #004411;
     }
-    .sl-red {
-        color: #dc2626;
-        font-weight: 600;
+    
+    /* Button Styling */
+    div.stButton > button {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        font-weight: 700 !important;
+        border-radius: 8px !important;
+        width: 100% !important;
+        border: none !important;
     }
-    .entry-blue {
-        color: #2563eb;
-        font-weight: 600;
-    }
+    
+    /* Hide Streamlit elements for cleaner look */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
-# --- CORE LOGIC (UNTOUCHED) ---
+# --- LOGIC (RETAINED AS IS) ---
 def get_last_trading_day():
     today = datetime.now()
-    if today.weekday() == 5: # Saturday
-        return today - timedelta(days=1)
-    elif today.weekday() == 6: # Sunday
-        return today - timedelta(days=2)
+    if today.weekday() == 5: return today - timedelta(days=1)
+    elif today.weekday() == 6: return today - timedelta(days=2)
     return today
 
 def get_nifty500_tickers():
@@ -78,84 +90,55 @@ def get_nifty500_tickers():
 def scan_stocks(tickers):
     bullish_stocks = []
     progress_bar = st.progress(0)
-    total = len(tickers)
-    
     for i, ticker in enumerate(tickers):
         try:
-            if i % 10 == 0:
-                progress_bar.progress((i + 1) / total)
-            
+            if i % 10 == 0: progress_bar.progress((i + 1) / len(tickers))
             data = yf.download(ticker, period="1y", interval="1d", progress=False)
             if len(data) < 200: continue
-            
             df = data.copy()
             df['SMA44'] = df['Close'].rolling(window=44).mean()
             df['SMA200'] = df['Close'].rolling(window=200).mean()
+            l, p = df.iloc[-1], df.iloc[-2]
             
-            latest = df.iloc[-1]
-            prev = df.iloc[-2]
-            
-            p_close = float(latest['Close'])
-            p_open = float(latest['Open'])
-            p_low = float(latest['Low'])
-            p_high = float(latest['High'])
-            sma44_now = float(latest['SMA44'])
-            sma44_prev = float(prev['SMA44'])
-            sma200_now = float(latest['SMA200'])
-            sma200_prev = float(prev['SMA200'])
-            
-            is_sma_rising = (sma44_now > sma44_prev) and (sma200_now > sma200_prev)
-            is_green_candle = p_close > p_open
-            is_at_support = p_low <= (sma44_now * 1.01) 
-            
-            if is_sma_rising and is_green_candle and is_at_support:
-                buy_above = round(p_high, 2)
-                sl = round(p_low * 0.998, 2)
-                risk = buy_above - sl
+            # Logic conditions
+            if (l['SMA44'] > p['SMA44']) and (l['SMA200'] > p['SMA200']) and \
+               (l['Close'] > l['Open']) and (l['Low'] <= (l['SMA44'] * 1.01)):
+                
+                buy, sl = round(float(l['High']), 2), round(float(l['Low']) * 0.998, 2)
+                risk = buy - sl
                 if risk > 0:
                     bullish_stocks.append({
-                        "Ticker": ticker.replace(".NS", ""),
-                        "LTP": round(p_close, 2),
-                        "Buy_Above": buy_above,
-                        "SL": sl,
-                        "T1": round(buy_above + (risk * 1), 2),
-                        "T2": round(buy_above + (risk * 2), 2),
-                        "Risk_Pct": round((risk/buy_above)*100, 2)
+                        "T": ticker.replace(".NS", ""), "L": round(float(l['Close']), 2),
+                        "B": buy, "S": sl, "T1": round(buy + risk, 2), "T2": round(buy + (risk*2), 2),
+                        "R": round((risk/buy)*100, 2)
                     })
         except: continue
     progress_bar.empty()
     return bullish_stocks
 
-# --- UI INTERFACE ---
-st.title("⚡ Pro Market Scanner")
-st.markdown("##### 44 SMA + 200 SMA Bullish Momentum")
+# --- UI ---
+st.title("⚡ DARK SCANNER")
+st.write(f"NIFTY 500 • {get_last_trading_day().strftime('%d %b %Y')}")
 
-if st.button('🚀 Scan Nifty 500 Now'):
-    with st.spinner('Analyzing market trends...'):
-        watchlist = get_nifty500_tickers()
-        results = scan_stocks(watchlist)
-        
-        if results:
-            st.write(f"### Found {len(results)} Opportunities")
-            
-            # Displaying in a Grid
-            cols = st.columns(3)
-            for idx, stock in enumerate(results):
-                with cols[idx % 3]:
-                    # Modern Card using Markdown + CSS
-                    st.markdown(f"""
-                    <div class="stock-card">
-                        <div class="ticker-name">{stock['Ticker']}</div>
-                        <span class="price-badge">LTP: ₹{stock['LTP']}</span>
-                        <p style="margin-top:10px;">
-                            <span class="entry-blue">Entry Above: ₹{stock['Buy_Above']}</span><br>
-                            <span class="sl-red">Stop Loss: ₹{stock['SL']}</span> (Risk: {stock['Risk_Pct']}%)
-                        </p>
-                        <div class="target-green">Target 1: ₹{stock['T1']}</div>
-                        <div class="target-green" style="background-color: #bbf7d0;">Target 2: ₹{stock['T2']}</div>
+if st.button('RUN MARKET ANALYSIS'):
+    results = scan_stocks(get_nifty500_tickers())
+    
+    if results:
+        cols = st.columns(3)
+        for idx, s in enumerate(results):
+            with cols[idx % 3]:
+                st.markdown(f"""
+                <div class="stock-card">
+                    <div class="ticker-name">{s['T']}</div>
+                    <div class="price-badge">LTP: ₹{s['L']}</div>
+                    <hr style="border: 0.5px solid #222; margin: 15px 0;">
+                    <div style="margin-bottom:10px;">
+                        <span class="entry-text">BUY ABOVE: ₹{s['B']}</span><br>
+                        <span class="sl-text">STOP LOSS: ₹{s['S']}</span> <small style="color:#555">({s['R']}%)</small>
                     </div>
-                    """, unsafe_allow_html=True)
-        else:
-            st.warning("No stocks matched the criteria today.")
-
-st.sidebar.caption(f"Data Date: {get_last_trading_day().strftime('%d %b %Y')}")
+                    <div class="target-box">TARGET 1: ₹{s['T1']}</div>
+                    <div class="target-box" style="background-color:#00ff44; color:#000;">TARGET 2: ₹{s['T2']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.info("No patterns detected in current session.")
