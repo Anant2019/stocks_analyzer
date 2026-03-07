@@ -1,67 +1,94 @@
-def scan_stock(symbol, start_date, end_date):
-    try:
-        ticker = f"{symbol}.NS"
-        fetch_start = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=400)).strftime("%Y-%m-%d")
-        df = yf.download(ticker, start=fetch_start, end=end_date, progress=False, auto_adjust=True)
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ScreenerHeader } from "@/components/ScreenerHeader";
+import { StrategyInfo } from "@/components/StrategyInfo";
+import { ResultsTable } from "@/components/ResultsTable";
+import { NSE_200_STOCKS } from "@/lib/nse200";
+import { generateDemoData, ScreenerResult } from "@/lib/screener";
+import { Play, Info } from "lucide-react";
 
-        if df.empty or len(df) < 203:
-            return []
+const Index = () => {
+  const [results, setResults] = useState<ScreenerResult[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [showStrategy, setShowStrategy] = useState(false);
+  const [hasScanned, setHasScanned] = useState(false);
 
-        # FIX: Flatten MultiIndex columns (yfinance >= 0.2.31 returns MultiIndex)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+  const handleScan = async () => {
+    setIsScanning(true);
+    setResults([]);
+    setScanProgress(0);
+    setHasScanned(true);
 
-        # Ensure numeric types
-        for col in ["Open", "High", "Low", "Close"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    // Simulate scanning with demo data (replace with real API later)
+    for (let i = 0; i <= 100; i += 5) {
+      await new Promise((r) => setTimeout(r, 60));
+      setScanProgress(i);
+    }
 
-        df["SMA44"] = df["Close"].rolling(44).mean()
-        df["SMA200"] = df["Close"].rolling(200).mean()
-        df["SMA44_2"] = df["SMA44"].shift(2)
-        df["SMA200_2"] = df["SMA200"].shift(2)
+    const demoResults = generateDemoData();
+    setResults(demoResults);
+    setIsScanning(false);
+    setScanProgress(100);
+  };
 
-        df = df[df.index >= start_date].copy()
-        df = df.dropna(subset=["SMA44", "SMA200", "SMA44_2", "SMA200_2"])
+  return (
+    <div className="min-h-screen bg-background">
+      <ScreenerHeader
+        totalStocks={NSE_200_STOCKS.length}
+        matchCount={results.length}
+        isScanning={isScanning}
+        scanProgress={scanProgress}
+      />
 
-        # Pine Script conditions - use .values to avoid index alignment issues
-        is_trending = (df["SMA44"].values > df["SMA200"].values) & \
-                      (df["SMA44"].values > df["SMA44_2"].values) & \
-                      (df["SMA200"].values > df["SMA200_2"].values)
+      <div className="px-6 py-4 flex items-center gap-3">
+        <Button
+          onClick={handleScan}
+          disabled={isScanning}
+          className="gap-2 font-semibold"
+          size="lg"
+        >
+          <Play className="h-4 w-4" />
+          {isScanning ? "Scanning..." : "Scan Now"}
+        </Button>
+        <Button
+          variant="outline"
+          size="lg"
+          onClick={() => setShowStrategy(!showStrategy)}
+          className="gap-2"
+        >
+          <Info className="h-4 w-4" />
+          Strategy
+        </Button>
+        {hasScanned && !isScanning && (
+          <span className="ml-auto text-xs text-muted-foreground font-mono">
+            Last scan: {new Date().toLocaleTimeString()} · Demo data
+          </span>
+        )}
+      </div>
 
-        is_strong = (df["Close"].values > df["Open"].values) & \
-                    (df["Close"].values > (df["High"].values + df["Low"].values) / 2)
+      {showStrategy && <StrategyInfo />}
 
-        buy = is_trending & is_strong & \
-              (df["Low"].values <= df["SMA44"].values) & \
-              (df["Close"].values > df["SMA44"].values)
+      <div className="px-6 pb-6">
+        <div className="rounded-lg border border-border bg-card overflow-hidden">
+          <ResultsTable results={results} />
+        </div>
+      </div>
 
-        df["buy"] = buy
-        signals = df[df["buy"]].copy()
+      {!hasScanned && (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 glow-bullish">
+            <Play className="h-6 w-6 text-bullish" />
+          </div>
+          <p className="text-lg font-medium">Ready to Scan</p>
+          <p className="text-sm mt-1">Analyze NSE 200 stocks for swing buy signals</p>
+          <p className="text-xs mt-3 font-mono text-muted-foreground/60">
+            Currently showing demo data · Connect live API for real-time screening
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
 
-        if signals.empty:
-            return []
-
-        results = []
-        for date, row in signals.iterrows():
-            close = float(row["Close"])
-            low = float(row["Low"])
-            risk = close - low
-            if risk <= 0:
-                continue
-            results.append({
-                "Date": date.strftime("%Y-%m-%d"),
-                "Symbol": symbol,
-                "Close": round(close, 2),
-                "SMA44": round(float(row["SMA44"]), 2),
-                "SMA200": round(float(row["SMA200"]), 2),
-                "Entry": round(close, 2),
-                "Stop Loss": round(low, 2),
-                "Target 1 (1:1)": round(close + risk, 2),
-                "Target 2 (1:2)": round(close + risk * 2, 2),
-                "Risk ₹": round(risk, 2),
-                "Risk %": round((risk / close) * 100, 2),
-            })
-        return results
-    except Exception as e:
-        st.toast(f"⚠️ {symbol}: {e}")
-        return []
+export default Index;
