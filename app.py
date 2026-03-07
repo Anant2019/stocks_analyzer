@@ -1,94 +1,39 @@
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { ScreenerHeader } from "@/components/ScreenerHeader";
-import { StrategyInfo } from "@/components/StrategyInfo";
-import { ResultsTable } from "@/components/ResultsTable";
-import { NSE_200_STOCKS } from "@/lib/nse200";
-import { generateDemoData, ScreenerResult } from "@/lib/screener";
-import { Play, Info } from "lucide-react";
+def solve_n_queens(n):
+    board = [['.' for _ in range(n)] for _ in range(n)]
+    results = []
+    steps = [] # To store backtracking trace
 
-const Index = () => {
-  const [results, setResults] = useState<ScreenerResult[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanProgress, setScanProgress] = useState(0);
-  const [showStrategy, setShowStrategy] = useState(false);
-  const [hasScanned, setHasScanned] = useState(false);
+    def is_safe(row, col):
+        for i in range(row):
+            if board[i][col] == 'Q': return False
+        for i, j in zip(range(row-1, -1, -1), range(col-1, -1, -1)):
+            if board[i][j] == 'Q': return False
+        for i, j in zip(range(row-1, -1, -1), range(col+1, n)):
+            if board[i][j] == 'Q': return False
+        return True
 
-  const handleScan = async () => {
-    setIsScanning(true);
-    setResults([]);
-    setScanProgress(0);
-    setHasScanned(true);
+    def backtrack(row):
+        steps.append({
+            "description": f"Exploring row {row}",
+            "board": [row[:] for row in board],
+            "is_backtracking": False
+        })
 
-    // Simulate scanning with demo data (replace with real API later)
-    for (let i = 0; i <= 100; i += 5) {
-      await new Promise((r) => setTimeout(r, 60));
-      setScanProgress(i);
-    }
+        if row == n:
+            results.append(["".join(r) for r in board])
+            return
 
-    const demoResults = generateDemoData();
-    setResults(demoResults);
-    setIsScanning(false);
-    setScanProgress(100);
-  };
+        for col in range(n):
+            if is_safe(row, col):
+                board[row][col] = 'Q'
+                backtrack(row + 1)
+                board[row][col] = '.' # Backtrack
+                
+                steps.append({
+                    "description": f"Backtracking from row {row}, col {col}",
+                    "board": [row[:] for row in board],
+                    "is_backtracking": True
+                })
 
-  return (
-    <div className="min-h-screen bg-background">
-      <ScreenerHeader
-        totalStocks={NSE_200_STOCKS.length}
-        matchCount={results.length}
-        isScanning={isScanning}
-        scanProgress={scanProgress}
-      />
-
-      <div className="px-6 py-4 flex items-center gap-3">
-        <Button
-          onClick={handleScan}
-          disabled={isScanning}
-          className="gap-2 font-semibold"
-          size="lg"
-        >
-          <Play className="h-4 w-4" />
-          {isScanning ? "Scanning..." : "Scan Now"}
-        </Button>
-        <Button
-          variant="outline"
-          size="lg"
-          onClick={() => setShowStrategy(!showStrategy)}
-          className="gap-2"
-        >
-          <Info className="h-4 w-4" />
-          Strategy
-        </Button>
-        {hasScanned && !isScanning && (
-          <span className="ml-auto text-xs text-muted-foreground font-mono">
-            Last scan: {new Date().toLocaleTimeString()} · Demo data
-          </span>
-        )}
-      </div>
-
-      {showStrategy && <StrategyInfo />}
-
-      <div className="px-6 pb-6">
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <ResultsTable results={results} />
-        </div>
-      </div>
-
-      {!hasScanned && (
-        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 glow-bullish">
-            <Play className="h-6 w-6 text-bullish" />
-          </div>
-          <p className="text-lg font-medium">Ready to Scan</p>
-          <p className="text-sm mt-1">Analyze NSE 200 stocks for swing buy signals</p>
-          <p className="text-xs mt-3 font-mono text-muted-foreground/60">
-            Currently showing demo data · Connect live API for real-time screening
-          </p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default Index;
+    backtrack(0)
+    return results, steps
