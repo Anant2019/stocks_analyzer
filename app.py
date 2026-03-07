@@ -1,11 +1,9 @@
-# swing_screener.py
-# Swing Triple Bullish 44-200 Scanner - NSE 200
-# Requirements: pip install yfinance pandas tabulate
-
+import streamlit as st
 import yfinance as yf
 import pandas as pd
-from tabulate import tabulate
 from datetime import datetime, timedelta
+
+st.set_page_config(page_title="Swing Triple Bullish Scanner", page_icon="📈", layout="wide")
 
 NSE_200 = [
     "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "SBIN", "BHARTIARTL",
@@ -40,15 +38,13 @@ NSE_200 = [
     "ZEEL", "ABFRL", "RAYMOND", "RVNL", "SJVN", "NHPC", "JSWENERGY",
     "TORNTPOWER", "CESC", "TATACOMM", "HFCL",
     "CDSL", "BSE", "MCX", "JIOFIN", "BAJAJHLDNG",
-    "IGL", "MGL", "PETRONET", "GUJGASLTD"
+    "IGL", "MGL", "PETRONET", "GUJGASLTD",
 ]
 
 
-def scan_stock(symbol: str, start_date: str, end_date: str):
-    """Scan a single stock for all buy signals in the date range."""
+def scan_stock(symbol, start_date, end_date):
     try:
         ticker = f"{symbol}.NS"
-        # Fetch extra data before start_date for SMA calculation
         fetch_start = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=400)).strftime("%Y-%m-%d")
         df = yf.download(ticker, start=fetch_start, end=end_date, progress=False, auto_adjust=True)
 
@@ -60,10 +56,8 @@ def scan_stock(symbol: str, start_date: str, end_date: str):
         df["SMA44_2"] = df["SMA44"].shift(2)
         df["SMA200_2"] = df["SMA200"].shift(2)
 
-        # Filter to analysis period only
         df = df[df.index >= start_date].copy()
 
-        # Pine Script conditions
         df["is_trending"] = (df["SMA44"] > df["SMA200"]) & (df["SMA44"] > df["SMA44_2"]) & (df["SMA200"] > df["SMA200_2"])
         df["is_strong"] = (df["Close"] > df["Open"]) & (df["Close"] > (df["High"] + df["Low"]) / 2)
         df["buy"] = df["is_trending"] & df["is_strong"] & (df["Low"] <= df["SMA44"]) & (df["Close"] > df["SMA44"])
@@ -74,67 +68,121 @@ def scan_stock(symbol: str, start_date: str, end_date: str):
 
         results = []
         for date, row in signals.iterrows():
-            risk = float(row["Close"] - row["Low"])
+            close = float(row["Close"])
+            low = float(row["Low"])
+            risk = close - low
             results.append({
                 "Date": date.strftime("%Y-%m-%d"),
                 "Symbol": symbol,
-                "Close": round(float(row["Close"]), 2),
+                "Close": round(close, 2),
                 "SMA44": round(float(row["SMA44"]), 2),
                 "SMA200": round(float(row["SMA200"]), 2),
-                "Entry": round(float(row["Close"]), 2),
-                "SL": round(float(row["Low"]), 2),
-                "Tgt1 (1:1)": round(float(row["Close"]) + risk, 2),
-                "Tgt2 (1:2)": round(float(row["Close"]) + risk * 2, 2),
-                "Risk": round(risk, 2),
-                "Risk%": round((risk / float(row["Close"])) * 100, 2),
+                "Entry": round(close, 2),
+                "Stop Loss": round(low, 2),
+                "Target 1 (1:1)": round(close + risk, 2),
+                "Target 2 (1:2)": round(close + risk * 2, 2),
+                "Risk ₹": round(risk, 2),
+                "Risk %": round((risk / close) * 100, 2),
             })
         return results
-
-    except Exception as e:
-        print(f"  ⚠ Error scanning {symbol}: {e}")
+    except Exception:
         return []
 
 
-def main():
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+# ── Sidebar ──
+with st.sidebar:
+    st.title("⚙️ Scanner Settings")
+    st.markdown("---")
 
-    print("=" * 80)
-    print("  SWING TRIPLE BULLISH 44-200 SCANNER")
-    print(f"  Period: {start_date} → {end_date} | Universe: NSE 200")
-    print("=" * 80)
+    lookback = st.selectbox("Lookback Period", ["1 Month", "3 Months", "6 Months", "1 Year"], index=3)
+    lookback_days = {"1 Month": 30, "3 Months": 90, "6 Months": 180, "1 Year": 365}[lookback]
 
+    end_date = st.date_input("End Date", datetime.now())
+    start_date = end_date - timedelta(days=lookback_days)
+
+    st.markdown(f"**Scan Period:** `{start_date}` → `{end_date}`")
+    st.markdown(f"**Universe:** `{len(NSE_200)} stocks`")
+
+    st.markdown("---")
+    st.subheader("📋 Strategy Rules")
+    st.markdown("""
+    **Entry:**
+    - 44 SMA > 200 SMA (both rising)
+    - Green candle, close > midpoint
+    - Low touches 44 SMA, close above it
+
+    **Risk Management:**
+    - Stop Loss = Candle Low
+    - Target 1 = 1:1 R:R
+    - Target 2 = 1:2 R:R
+    - Exit 50% at Target 1
+    """)
+
+    scan_btn = st.button("🚀 Scan Now", use_container_width=True, type="primary")
+
+
+# ── Main Area ──
+st.title("📈 Swing Triple Bullish Scanner")
+st.caption("44-200 SMA Strategy · NSE 200")
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Universe", f"{len(NSE_200)} stocks")
+
+if scan_btn:
     all_signals = []
+    progress_bar = st.progress(0, text="Starting scan...")
+    status_text = st.empty()
     total = len(NSE_200)
 
-    for i, symbol in enumerate(NSE_200, 1):
-        print(f"\r  Scanning [{i}/{total}] {symbol:<20}", end="", flush=True)
-        signals = scan_stock(symbol, start_date, end_date)
+    for i, symbol in enumerate(NSE_200):
+        progress = (i + 1) / total
+        progress_bar.progress(progress, text=f"Scanning {symbol}... ({i+1}/{total})")
+        signals = scan_stock(symbol, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
         all_signals.extend(signals)
 
-    print(f"\n\n{'=' * 80}")
-    print(f"  RESULTS: {len(all_signals)} buy signals found across {len(set(s['Symbol'] for s in all_signals))} stocks")
-    print(f"{'=' * 80}\n")
+    progress_bar.progress(1.0, text="✅ Scan complete!")
 
     if all_signals:
-        df_results = pd.DataFrame(all_signals).sort_values("Date", ascending=False)
-        print(tabulate(df_results, headers="keys", tablefmt="fancy_grid", showindex=False))
+        df = pd.DataFrame(all_signals).sort_values("Date", ascending=False)
+        unique_stocks = df["Symbol"].nunique()
 
-        # Save to CSV
-        csv_file = f"swing_signals_{start_date}_to_{end_date}.csv"
-        df_results.to_csv(csv_file, index=False)
-        print(f"\n  ✅ Results saved to {csv_file}")
+        col2.metric("Signals Found", len(df))
+        col3.metric("Stocks with Signals", unique_stocks)
 
-        # Summary by stock
-        print(f"\n{'=' * 80}")
-        print("  SIGNAL COUNT BY STOCK")
-        print(f"{'=' * 80}")
-        summary = df_results.groupby("Symbol").size().sort_values(ascending=False)
-        for sym, count in summary.items():
-            print(f"  {sym:<20} {'█' * count} ({count})")
+        st.markdown("---")
+        st.subheader("📊 All Buy Signals")
+
+        # Highlight styling
+        def highlight_row(row):
+            return ["background-color: rgba(34, 197, 94, 0.05)"] * len(row)
+
+        st.dataframe(
+            df.style.apply(highlight_row, axis=1).format({
+                "Close": "₹{:.2f}",
+                "SMA44": "{:.2f}",
+                "SMA200": "{:.2f}",
+                "Entry": "₹{:.2f}",
+                "Stop Loss": "₹{:.2f}",
+                "Target 1 (1:1)": "₹{:.2f}",
+                "Target 2 (1:2)": "₹{:.2f}",
+                "Risk ₹": "₹{:.2f}",
+                "Risk %": "{:.2f}%",
+            }),
+            use_container_width=True,
+            height=500,
+        )
+
+        st.markdown("---")
+        st.subheader("📈 Signal Count by Stock")
+        summary = df.groupby("Symbol").size().sort_values(ascending=False).reset_index(name="Signals")
+        st.bar_chart(summary.set_index("Symbol"), height=400)
+
+        # Download button
+        csv = df.to_csv(index=False)
+        st.download_button("📥 Download CSV", csv, f"swing_signals_{start_date}_to_{end_date}.csv", "text/csv")
     else:
-        print("  No buy signals found in the given period.")
-
-
-if __name__ == "__main__":
-    main()
+        col2.metric("Signals Found", 0)
+        col3.metric("Stocks with Signals", 0)
+        st.warning("No buy signals found in the selected period.")
+else:
+    st.info("👈 Configure settings in the sidebar and click **Scan Now** to begin.")
