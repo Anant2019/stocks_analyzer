@@ -617,10 +617,19 @@ def header():
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
+REQUIRED_COLS = {"hist_tp1_rate","hist_tp2_rate","hist_sl_rate","hist_signals","risk_pct"}
+
 def main():
     for k in ["df","scan_done"]:
         if k not in st.session_state:
             st.session_state[k] = None
+
+    # Clear stale df from old app version if columns don't match
+    _df = st.session_state.get("df")
+    if _df is not None and not _df.empty:
+        if not REQUIRED_COLS.issubset(set(_df.columns)):
+            st.session_state["df"]        = None
+            st.session_state["scan_done"] = None
 
     header()
 
