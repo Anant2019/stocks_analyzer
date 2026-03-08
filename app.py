@@ -227,69 +227,57 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
+        # 1. DOWNLOAD DATA (Switched auto_adjust to False for better chart matching)
         raw: pd.DataFrame = yf.download(
-            ticker,
-            period=PERIOD,
-            interval=INTERVAL,
-            progress=False,
-            auto_adjust=True,
+            ticker, period=PERIOD, interval=INTERVAL,
+            progress=False, auto_adjust=False 
         )
 
         if len(raw) < MIN_BARS:
-            return None, AuditRecord(
-                ticker=ticker, outcome="INSUFFICIENT_DATA",
-                reason=f"{len(raw)} bars < {MIN_BARS}", latency_ms=ms(),
-            )
+            return None, AuditRecord(ticker=ticker, outcome="INSUFFICIENT_DATA", latency_ms=ms())
 
+        # Use 'Close' for calculations to match standard NSE charts
         close_s = raw["Close"]
-        high_s  = raw["High"]
-        low_s   = raw["Low"]
-        open_s  = raw["Open"]
-
-        s44  = close_s.rolling(SMA_FAST,  min_periods=SMA_FAST).mean()
-        s200 = close_s.rolling(SMA_SLOW, min_periods=SMA_SLOW).mean()
+        
+        # 2. INDICATORS
+        s44  = close_s.rolling(window=44).mean()
+        s200 = close_s.rolling(window=200).mean()
 
         for i in range(N_LOOKBACK):
-            cur   = -(i + 1)   
-            prev_day = -(i + 2) # Yesterday relative to 'cur'
-            prev2 = -(i + 3)  
-
-            # Extracting values and ensuring they are floats
-            s44_cur   = float(s44.iloc[cur])
-            s200_cur  = float(s200.iloc[cur])
-            s44_p2    = float(s44.iloc[prev2])
-            s200_p2   = float(s200.iloc[prev2])
-
-            c   = float(close_s.iloc[cur])
-            o   = float(open_s.iloc[cur])
-            h   = float(high_s.iloc[cur])
-            l   = float(low_s.iloc[cur])
-            p_c = float(close_s.iloc[prev_day]) # Previous day's close
+            cur = -(i + 1)
+            # Compare current SMA to an average of the last 3 days to confirm a REAL trend
+            s44_cur = float(s44.iloc[cur])
+            s44_prev_avg = float(s44.iloc[cur-3 : cur].mean()) # Average of 3 days ago
+            
+            s200_cur = float(s200.iloc[cur])
+            
+            c = float(close_s.iloc[cur])
+            o = float(raw["Open"].iloc[cur])
+            h = float(raw["High"].iloc[cur])
+            l = float(raw["Low"].iloc[cur])
+            p_c = float(close_s.iloc[cur - 1])
             mid = (h + l) / 2.0
 
-            # ── 1. TREND: 44 > 200, and BOTH rising ────────────────────────
-            if not (s44_cur > s200_cur and s44_cur > s44_p2 and s200_cur > s200_p2):
+            # ── IMPROVED TREND CHECK ──
+            # 1. 44 must be ABOVE 200 (Long term bullish)
+            # 2. 44 must be higher than its recent average (Actually sloping UP)
+            is_trending = s44_cur > s200_cur and s44_cur > s44_prev_avg
+            
+            if not is_trending:
                 continue
 
-            # ── 2. STRENGTH (FIXED): Must be Green AND higher than Yesterday ──
-            # c > o: Green Body
-            # c > p_c: Higher than yesterday (Prevents "Gap Down" false green)
-            # c > mid: Strong close in the top half of the candle
+            # ── STRENGTH CHECK ──
+            # Green candle, positive day, and strong close
             if not (c > o and c > p_c and c > mid):
                 continue
 
-            # ── 3. TOUCH: Wick reaches or pierces the SMA-44 ────────────────
-            if not (l <= s44_cur * TOUCH_BUFFER):
+            # ── TOUCH & RECLAIM ──
+            if not (l <= s44_cur * TOUCH_BUFFER and c > s44_cur):
                 continue
 
-            # ── 4. RECLAIM: Close is strictly above the SMA-44 ─────────────
-            if not (c > s44_cur):
-                continue
-
-            # ── 5. RISK CHECK ──────────────────────────────────────────────
+            # ── SIGNAL GENERATION ──
             risk = c - l
-            if risk <= 0:
-                continue
+            if risk <= 0: continue
 
             return TradingSignal(
                 ticker=ticker.replace(".NS", ""),
@@ -299,15 +287,13 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
                 target_2=round(c + risk * RISK_MULT, 2),
                 sma_fast=round(s44_cur, 2),
                 sma_slow=round(s200_cur, 2),
-                bars_ago=i,
-            ), AuditRecord(ticker=ticker, outcome="SIGNAL", reason=f"i={i}", latency_ms=ms())
+                bars_ago=i
+            ), AuditRecord(ticker=ticker, outcome="SIGNAL", reason=f"Confirmed Trend at {i}", latency_ms=ms())
 
         return None, AuditRecord(ticker=ticker, outcome="FILTERED", latency_ms=ms())
 
     except Exception as exc:
-        logger.error("Error %s: %s", ticker, exc, exc_info=True)
         return None, AuditRecord(ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=ms())
-
 
 # ── Universe ──────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=3_600, show_spinner=False)
