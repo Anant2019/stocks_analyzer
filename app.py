@@ -1,3 +1,97 @@
+# ── Updated Strategy Constants ──────────────────────────────────────────────
+SMA_FAST:     Final[int]   = 44
+SMA_SLOW:     Final[int]   = 200
+N_LOOKBACK:    Final[int]   = 5
+TOUCH_BUFFER:  Final[float] = 1.001  # Reduced to 0.1% for higher precision
+SL_BUFFER:     Final[float] = 0.998
+RISK_MULT:     Final[float] = 2.0
+
+def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
+    t0 = time.perf_counter()
+    ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
+
+    try:
+        raw: pd.DataFrame = yf.download(
+            ticker,
+            period="2y",
+            interval="1d",
+            progress=False,
+            auto_adjust=True,
+        )
+
+        if len(raw) < SMA_SLOW + 10:
+            return None, AuditRecord(ticker=ticker, outcome="SHORT_HISTORY")
+
+        # ── 1. USE EMA INSTEAD OF SMA ───────────────────────────────────────
+        # EMA is the standard for the 44-strategy to avoid "laggy" signals.
+        ema44  = raw["Close"].ewm(span=SMA_FAST, adjust=False).mean()
+        ema200 = raw["Close"].ewm(span=SMA_SLOW, adjust=False).mean()
+
+        close_s = raw["Close"]
+        high_s  = raw["High"]
+        low_s   = raw["Low"]
+        open_s  = raw["Open"]
+
+        for i in range(N_LOOKBACK):
+            cur   = -(i + 1)
+            prev2 = -(i + 3)
+
+            # Extracting values for clarity
+            c, o, h, l = close_s.iloc[cur], open_s.iloc[cur], high_s.iloc[cur], low_s.iloc[cur]
+            e44_cur, e200_cur = ema44.iloc[cur], ema200.iloc[cur]
+            e44_p2, e200_p2   = ema44.iloc[prev2], ema200.iloc[prev2]
+            mid = (h + l) / 2.0
+
+            # ── 2. TREND VALIDATION ────────────────────────────────────────
+            # 44 > 200 AND both must be sloping upwards
+            is_trending = e44_cur > e200_cur and e44_cur > e44_p2 and e200_cur > e200_p2
+            if not is_trending: continue
+
+            # ── 3. CANDLE STRENGTH ─────────────────────────────────────────
+            # Must be a green candle closing in the top 50% of its range
+            is_strong = c > o and c > mid
+            if not is_strong: continue
+
+            # ── 4. THE TOUCH & RECLAIM (PRECISION FIXED) ───────────────────
+            # Low must be within 0.1% of EMA44 or below it.
+            # Close must be strictly above EMA44.
+            touched = l <= (e44_cur * TOUCH_BUFFER)
+            reclaimed = c > e44_cur
+            
+            if not (touched and reclaimed): continue
+
+            # ── 5. STALENESS CHECK ─────────────────────────────────────────
+            # If the signal was 'i' days ago, ensure price hasn't already 
+            # breached the Stop Loss since then.
+            risk = c - l
+            sl_price = l * SL_BUFFER
+            
+            # Check all candles from the signal day to today
+            if i > 0:
+                historical_lows = low_s.iloc[cur+1:] 
+                if (historical_lows < sl_price).any():
+                    continue 
+
+            # ── ALL CLEAR ──────────────────────────────────────────────────
+            return TradingSignal(
+                ticker=ticker.replace(".NS", ""),
+                entry=round(c, 2),
+                stop_loss=round(sl_price, 2),
+                target_1=round(c + risk, 2),
+                target_2=round(c + risk * RISK_MULT, 2),
+                sma_fast=round(e44_cur, 2),
+                sma_slow=round(e200_cur, 2),
+                bars_ago=i
+            ), AuditRecord(ticker=ticker, outcome="SIGNAL", reason=f"i={i}", latency_ms=ms())
+
+        return None, AuditRecord(ticker=ticker, outcome="FILTERED", latency_ms=ms())
+
+    except Exception as e:
+        return None, AuditRecord(ticker=ticker, outcome="ERROR", reason=str(e), latency_ms=ms())
+
+
+
+'''
 """
 arth_sutra_engine.py
 Swing Triple Bullish Scanner | Exact Pine Script v5 Port | Python 3.12+
@@ -218,6 +312,8 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
         return None, AuditRecord(
             ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=ms(),
         )
+
+'''
 
 
 # ── Universe ──────────────────────────────────────────────────────────────────
@@ -663,3 +759,14 @@ st.set_page_config(
 
 if __name__ == "__main__" or True:
     render_dashboard()
+
+
+
+
+
+
+
+
+
+
+
