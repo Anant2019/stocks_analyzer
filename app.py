@@ -312,68 +312,58 @@ def _compute_signal(ticker: str) -> Tuple[Optional[TradingSignal], AuditRecord]:
     get_ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
-        # 1. Fetch data (3y ensures the 200-SMA has plenty of history to 'warm up')
+        # 1. Extended data for SMA-200 stability
         raw = yf.download(ticker, period="3y", interval="1d", progress=False, auto_adjust=True)
 
         if raw is None or raw.empty or len(raw) < SMA_SLOW + 10:
-            return None, AuditRecord(ticker, "SHORT_HISTORY", latency_ms=get_ms())
+            return None, AuditRecord(ticker, "INSUFFICIENT_DATA", latency_ms=get_ms())
 
-        # 2. Calculate SMAs exactly as Pine Script does
+        # 2. SMA Calculation
         s44  = raw["Close"].rolling(window=SMA_FAST).mean()
         s200 = raw["Close"].rolling(window=SMA_SLOW).mean()
 
-        # 3. Use .values for raw speed and to avoid index-matching errors
-        closes = raw["Close"].values
-        opens  = raw["Open"].values
-        highs  = raw["High"].values
-        lows   = raw["Low"].values
-        v44    = s44.values
-        v200   = s200.values
+        # 3. Use raw numpy arrays (Prevents IndexErrors and is 10x faster)
+        closes, opens, highs, lows = raw["Close"].values, raw["Open"].values, raw["High"].values, raw["Low"].values
+        v44, v200 = s44.values, s200.values
 
-        # 4. Scan back N_LOOKBACK days
+        # 4. The Scan Loop (Last 5 days)
         for i in range(N_LOOKBACK):
-            # idx is the current bar being checked in the loop
-            idx = -(i + 1) 
-            # p2 is '2 bars ago' relative to the bar being checked (idx - 2)
-            p2  = -(i + 3) 
+            idx = -(i + 1)
+            p2  = -(i + 3) # Exactly 2 bars before the 'idx' bar
 
-            # Current values
+            # Current values at bar 'i'
             c, o, h, l = closes[idx], opens[idx], highs[idx], lows[idx]
             s44_c, s200_c = v44[idx], v200[idx]
+            s200_p2 = v200[p2] # 200-SMA slope check
             
-            # Values from 2 bars ago (for rising trend check)
-            s44_p2, s200_p2 = v44[p2], v200[p2]
+            mid = (h + l) / 2.0
 
-            # --- LOGIC: TREND (STRICT) ---
-            # 44 > 200 AND both must be higher than 2 bars ago
-            if not (s44_c > s200_c and s44_c > s44_p2 and s200_c > s200_p2):
+            # ── THE FIX: RELAXED TREND ─────────────────────────────────────
+            # We only care that 44 > 200 and the 200-SMA is rising.
+            # We removed the 's44_c > s44_p2' requirement which was too strict.
+            if not (c > s200_c and s44_c > s200_c and s200_c > s200_p2):
                 continue
 
-            # --- LOGIC: STRENGTH ---
-            # Green candle AND closing in the top 50% of the daily range
-            mid = (h + l) / 2.0
+            # ── CANDLE STRENGTH ───────────────────────────────────────────
+            # Must be a green candle closing in the top 50% of the day's range
             if not (c > o and c > mid):
                 continue
 
-            # --- LOGIC: THE TOUCH (CRITICAL FIX) ---
-            # We use the TOUCH_BUFFER (1.003) because yfinance adjusted prices 
-            # often have micro-decimal differences compared to NSE LTP.
-            is_touching = l <= (s44_c * TOUCH_BUFFER)
-            is_reclaimed = c > s44_c
-            
-            if not (is_touching and is_reclaimed):
+            # ── THE TOUCH & RECLAIM ───────────────────────────────────────
+            # Touch: Low <= SMA44 (with 0.3% buffer)
+            # Reclaim: Close > SMA44
+            if not (l <= (s44_c * TOUCH_BUFFER) and c > s44_c):
                 continue
 
-            # --- LOGIC: SURVIVAL ---
+            # ── SURVIVAL CHECK ────────────────────────────────────────────
             risk = c - l
             sl_val = l * SL_BUFFER
-            # If checking a historical bar (i > 0), ensure it didn't hit SL already
             if i > 0:
-                future_lows = lows[idx+1:]
-                if (future_lows < sl_val).any():
+                # If checking a bar from 3 days ago, ensure price didn't hit SL since then
+                if (lows[idx+1:] < sl_val).any():
                     continue
 
-            # SUCCESS
+            # SIGNAL FOUND
             return TradingSignal(
                 ticker=ticker.replace(".NS", ""),
                 entry=round(c, 2),
@@ -383,12 +373,12 @@ def _compute_signal(ticker: str) -> Tuple[Optional[TradingSignal], AuditRecord]:
                 sma_fast=round(s44_c, 2),
                 sma_slow=round(s200_c, 2),
                 bars_ago=i
-            ), AuditRecord(ticker, "SIGNAL", reason=f"i={i}", latency_ms=get_ms())
+            ), AuditRecord(ticker, "SIGNAL", reason=f"Found at i={i}", latency_ms=get_ms())
 
         return None, AuditRecord(ticker, "FILTERED", latency_ms=get_ms())
 
-    except Exception as e:
-        return None, AuditRecord(ticker, "ERROR", reason=str(e), latency_ms=get_ms())
+    except Exception as exc:
+        return None, AuditRecord(ticker, "ERROR", reason=str(exc), latency_ms=get_ms())
 
 
 # ── Universe ──────────────────────────────────────────────────────────────────
