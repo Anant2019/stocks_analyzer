@@ -7,3 +7,5 @@ matplotlib
 scipy
 plotly
 nsepy
+nsetools
+requests
