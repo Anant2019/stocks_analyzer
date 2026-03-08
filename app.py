@@ -35,7 +35,7 @@ def scan_stocks():
 
         df = yf.download(stock, period="6mo", interval="1d", progress=False)
 
-        if len(df) < 50:
+        if df.empty or len(df) < 50:
             continue
 
         df["EMA20"] = df["Close"].ewm(span=20).mean()
@@ -44,31 +44,40 @@ def scan_stocks():
 
         latest = df.iloc[-1]
 
+        close = float(latest["Close"])
+        ema20 = float(latest["EMA20"])
+        ema50 = float(latest["EMA50"])
+        rsi = float(latest["RSI"])
+        volume = float(latest["Volume"])
+        avg_volume = float(df["Volume"].mean())
+
         score = 0
 
-        if latest["Close"] > latest["EMA20"]:
+        if close > ema20:
             score += 25
 
-        if latest["EMA20"] > latest["EMA50"]:
+        if ema20 > ema50:
             score += 25
 
-        if 50 < latest["RSI"] < 65:
+        if 50 < rsi < 65:
             score += 25
 
-        if latest["Volume"] > df["Volume"].mean():
+        if volume > avg_volume:
             score += 25
 
         results.append({
             "Stock": stock,
-            "Price": round(latest["Close"],2),
-            "RSI": round(latest["RSI"],2),
+            "Price": round(close,2),
+            "RSI": round(rsi,2),
             "Probability %": score
         })
 
-    df = pd.DataFrame(results)
-    df = df.sort_values(by="Probability %", ascending=False)
+    df_results = pd.DataFrame(results)
 
-    return df
+    if not df_results.empty:
+        df_results = df_results.sort_values(by="Probability %", ascending=False)
+
+    return df_results
 
 
 st.title("📈 Swing Trading Stock Scanner")
@@ -77,8 +86,13 @@ if st.button("Scan Stocks"):
 
     data = scan_stocks()
 
-    st.dataframe(data)
+    if data.empty:
+        st.warning("No strong setups found today.")
+    else:
+        st.dataframe(data)
 
-    best = data.iloc[0]
+        best = data.iloc[0]
 
-    st.success(f"Best Stock: {best['Stock']} with {best['Probability %']}% probability")
+        st.success(
+            f"Best Stock Today: {best['Stock']} with {best['Probability %']}% probability"
+        )
