@@ -1,5 +1,5 @@
 
-
+from __future__ import annotations
 
 """
 arth_sutra_engine.py
@@ -240,7 +240,7 @@ def _load_universe() -> list[str]:
 
 '''
 
-from __future__ import annotations
+
 
 import logging
 import math
