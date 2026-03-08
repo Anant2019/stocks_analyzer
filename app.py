@@ -309,57 +309,77 @@ class AuditRecord:
 # ── Signal Computation ────────────────────────────────────────────────────────
 def _compute_signal(ticker: str) -> Tuple[Optional[TradingSignal], AuditRecord]:
     t0 = time.perf_counter()
-    def get_ms(): return round((time.perf_counter() - t0) * 1_000, 2)
+    get_ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
-        raw = yf.download(ticker, period=PERIOD, interval=INTERVAL, progress=False, auto_adjust=True)
+        # 1. Fetch data (3y ensures the 200-SMA has plenty of history to 'warm up')
+        raw = yf.download(ticker, period="3y", interval="1d", progress=False, auto_adjust=True)
 
-        if raw is None or raw.empty or len(raw) < MIN_BARS:
-            return None, AuditRecord(ticker, "INSUFFICIENT_DATA", latency_ms=get_ms())
+        if raw is None or raw.empty or len(raw) < SMA_SLOW + 10:
+            return None, AuditRecord(ticker, "SHORT_HISTORY", latency_ms=get_ms())
 
-        # ── 1. REVERTED TO SMA (Simple Moving Average) ─────────────────────
+        # 2. Calculate SMAs exactly as Pine Script does
         s44  = raw["Close"].rolling(window=SMA_FAST).mean()
         s200 = raw["Close"].rolling(window=SMA_SLOW).mean()
 
-        close_s, open_s, high_s, low_s = raw["Close"], raw["Open"], raw["High"], raw["Low"]
+        # 3. Use .values for raw speed and to avoid index-matching errors
+        closes = raw["Close"].values
+        opens  = raw["Open"].values
+        highs  = raw["High"].values
+        lows   = raw["Low"].values
+        v44    = s44.values
+        v200   = s200.values
 
+        # 4. Scan back N_LOOKBACK days
         for i in range(N_LOOKBACK):
-            cur, p2 = -(i + 1), -(i + 3)
-            
-            # Use float() to ensure compatibility with rounding logic
-            c, o, h, l = float(close_s.iloc[cur]), float(open_s.iloc[cur]), float(high_s.iloc[cur]), float(low_s.iloc[cur])
-            s44_c, s200_c = float(s44.iloc[cur]), float(s200.iloc[cur])
-            s44_p2, s200_p2 = float(s44.iloc[p2]), float(s200.iloc[p2])
-            mid = (h + l) / 2.0
+            # idx is the current bar being checked in the loop
+            idx = -(i + 1) 
+            # p2 is '2 bars ago' relative to the bar being checked (idx - 2)
+            p2  = -(i + 3) 
 
-            # --- CONDITION: Trending (SMA 44 > 200 and both rising) ---
+            # Current values
+            c, o, h, l = closes[idx], opens[idx], highs[idx], lows[idx]
+            s44_c, s200_c = v44[idx], v200[idx]
+            
+            # Values from 2 bars ago (for rising trend check)
+            s44_p2, s200_p2 = v44[p2], v200[p2]
+
+            # --- LOGIC: TREND (STRICT) ---
+            # 44 > 200 AND both must be higher than 2 bars ago
             if not (s44_c > s200_c and s44_c > s44_p2 and s200_c > s200_p2):
                 continue
 
-            # --- CONDITION: Strong Green Candle ---
+            # --- LOGIC: STRENGTH ---
+            # Green candle AND closing in the top 50% of the daily range
+            mid = (h + l) / 2.0
             if not (c > o and c > mid):
                 continue
 
-            # --- CONDITION: Touch & Reclaim ---
-            # l <= s44_c * 1.003 ensures we catch near-touches
-            if not (l <= (s44_c * TOUCH_BUFFER) and c > s44_c):
+            # --- LOGIC: THE TOUCH (CRITICAL FIX) ---
+            # We use the TOUCH_BUFFER (1.003) because yfinance adjusted prices 
+            # often have micro-decimal differences compared to NSE LTP.
+            is_touching = l <= (s44_c * TOUCH_BUFFER)
+            is_reclaimed = c > s44_c
+            
+            if not (is_touching and is_reclaimed):
                 continue
 
-            # --- CONDITION: Staleness / Stop Loss Check ---
-            # This prevents "incorrect" historical signals that already failed
+            # --- LOGIC: SURVIVAL ---
             risk = c - l
             sl_val = l * SL_BUFFER
+            # If checking a historical bar (i > 0), ensure it didn't hit SL already
             if i > 0:
-                # If any low since the signal bar has hit the SL, ignore it
-                if (low_s.iloc[cur+1:] < sl_val).any():
+                future_lows = lows[idx+1:]
+                if (future_lows < sl_val).any():
                     continue
 
+            # SUCCESS
             return TradingSignal(
                 ticker=ticker.replace(".NS", ""),
                 entry=round(c, 2),
                 stop_loss=round(sl_val, 2),
                 target_1=round(c + risk, 2),
-                target_2=round(c + risk * RISK_MULT, 2),
+                target_2=round(c + (risk * RISK_MULT), 2),
                 sma_fast=round(s44_c, 2),
                 sma_slow=round(s200_c, 2),
                 bars_ago=i
@@ -369,7 +389,6 @@ def _compute_signal(ticker: str) -> Tuple[Optional[TradingSignal], AuditRecord]:
 
     except Exception as e:
         return None, AuditRecord(ticker, "ERROR", reason=str(e), latency_ms=get_ms())
-
 
 
 # ── Universe ──────────────────────────────────────────────────────────────────
