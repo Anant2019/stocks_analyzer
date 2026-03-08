@@ -221,79 +221,87 @@ class AuditRecord:
 #             ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=ms(),
 #         )
 
-
 def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
     t0 = time.perf_counter()
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
-        # auto_adjust=False is vital for the 'Green' check (C > O)
+        # auto_adjust=False preserves the integrity of the OHLC data
         raw = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=False)
 
-        if len(raw) < 210:
-            return None, AuditRecord(ticker, "SHORT_DATA", latency_ms=ms())
+        if len(raw) < 220:
+            return None, AuditRecord(ticker, "SKIP", "History too short", ms())
 
+        # 1. Basic Data Setup
         close_s = raw["Close"]
         open_s  = raw["Open"]
         low_s   = raw["Low"]
+        vol_s   = raw["Volume"]
         
+        # 2. Smooth Averages for Trend Quality
         s44  = close_s.rolling(window=44).mean()
         s200 = close_s.rolling(window=200).mean()
+        vol_ma = vol_s.rolling(window=20).mean() # 20-day Avg Volume
 
-        for i in range(N_LOOKBACK):
-            curr = -(i + 1)
-            prev = -(i + 2)
+        # 3. Analyze the most recent data (Today/Yesterday)
+        # We focus on the 'current' bar but look back for the touch
+        curr = -1
+        
+        c, o, l, h = close_s.iloc[curr], open_s.iloc[curr], low_s.iloc[curr], raw["High"].iloc[curr]
+        v_curr = vol_s.iloc[curr]
+        v_ma   = vol_ma.iloc[curr]
+        
+        s44_c, s200_c = s44.iloc[curr], s200.iloc[curr]
+        s44_prev = s44.iloc[curr-5] # 5 days ago for slope stability
 
-            # --- DATA POINTS ---
-            c, o, l = float(close_s.iloc[curr]), float(open_s.iloc[curr]), float(low_s.iloc[curr])
+        # --- THE "BEL" QUALITY FILTERS ---
+        
+        # A. TREND QUALITY: Price must be in a 'Golden' alignment
+        # Price > 44-SMA > 200-SMA
+        is_aligned = (c > s44_c) and (s44_c > s200_c)
+        
+        # B. SLOPE QUALITY: 44-SMA must have risen over a 5-day window
+        # This removes 'flat' or 'choppy' stocks
+        is_trending_up = s44_c > s44_prev
+
+        # C. THE BOUNCE (Historical Touch): 
+        # Did the stock touch the 44-SMA in the last 5 days?
+        lookback_lows = low_s.iloc[-5:]
+        has_touched = (lookback_lows <= (s44.iloc[-5:] * 1.005)).any()
+
+        # D. CANDLE STRENGTH: Must be a Green Hike TODAY
+        is_green = c > o
+        
+        # E. VOLUME CONFIRMATION: Volume should be at least 80% of average 
+        # to ensure the bounce isn't a fake-out
+        is_high_volume = v_curr > (v_ma * 0.8)
+
+        # --- FINAL AGGREGATION ---
+        if all([is_aligned, is_trending_up, has_touched, is_green, is_high_volume]):
             
-            s44_curr, s44_prev = float(s44.iloc[curr]), float(s44.iloc[prev])
-            s200_curr, s200_prev = float(s200.iloc[curr]), float(s200.iloc[prev])
+            # Additional safety: Ensure the stock isn't a penny stock
+            if c < 100:
+                return None, AuditRecord(ticker, "FILTERED", "Price below 100", ms())
 
-            # ── THE 3 STRICT CONDITIONS (WITH STABILITY TOLERANCE) ──
-            
-            # 1. 44-SMA Going Up: We allow it to be flat or rising (>=) 
-            # to account for micro-decimal fluctuations in yfinance data.
-            is_44_up = s44_curr >= (s44_prev - 0.01) 
+            risk = c - l
+            # If risk is too small, use a default 2% SL to prevent tight-stop hunting
+            sl_price = min(l * 0.995, c * 0.98) 
 
-            # 2. 200-SMA Going Up
-            is_200_up = s200_curr >= (s200_prev - 0.01)
+            return TradingSignal(
+                ticker=ticker.replace(".NS", ""),
+                entry=round(c, 2),
+                stop_loss=round(sl_price, 2),
+                target_1=round(c + (c - sl_price) * 1.5, 2),
+                target_2=round(c + (c - sl_price) * 3.0, 2),
+                sma_fast=round(s44_c, 2),
+                sma_slow=round(s200_c, 2),
+                bars_ago=0 # Found on current bar after historical touch
+            ), AuditRecord(ticker, "SIGNAL", "BEL-Style Setup Found", ms())
 
-            # 3. Candle MUST be Green
-            is_green = c > o
-
-            # --- GATEKEEPER ---
-            if not (is_44_up and is_200_up and is_green):
-                continue
-
-            # ── STRATEGY: THE BOUNCE ──
-            # If your manual scan finds more, it's because your 'Touch' is wider.
-            # I am increasing the buffer to 0.5% (1.005) to catch 'near-touches'.
-            touched = l <= (s44_curr * 1.005) 
-            reclaimed = c > s44_curr
-            above_200 = c > s200_curr
-
-            if touched and reclaimed and above_200:
-                risk = c - l
-                if risk <= 0: continue
-
-                return TradingSignal(
-                    ticker=ticker.replace(".NS", ""),
-                    entry=round(c, 2),
-                    stop_loss=round(l * 0.998, 2),
-                    target_1=round(c + risk * 1.5, 2),
-                    target_2=round(c + risk * 3.0, 2),
-                    sma_fast=round(s44_curr, 2),
-                    sma_slow=round(s200_curr, 2),
-                    bars_ago=i
-                ), AuditRecord(ticker, "SIGNAL", "Triple Condition Success", ms())
-
-        return None, AuditRecord(ticker, "FILTERED", "No matches", ms())
+        return None, AuditRecord(ticker, "FILTERED", "Failed Quality Checks", ms())
 
     except Exception as e:
         return None, AuditRecord(ticker, "ERROR", str(e), ms())
-
-
 
 
 # ── Universe ──────────────────────────────────────────────────────────────────
