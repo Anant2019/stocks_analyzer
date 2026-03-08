@@ -5,15 +5,17 @@ import numpy as np
 
 st.set_page_config(page_title="Arth Sutra", layout="wide")
 
-st.title("📈 Arth Sutra - Swing Trading Scanner")
+st.title("📈 Arth Sutra PRO - NSE Swing Trading Scanner")
 
-# NSE sample stocks (you can expand later)
-stocks = [
-"RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
-"SBIN.NS","LT.NS","AXISBANK.NS","ITC.NS","KOTAKBANK.NS"
-]
+# Load Nifty 500 stock symbols
+def load_stocks():
+    url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
+    df = pd.read_csv(url)
+    symbols = df["Symbol"].tolist()
+    symbols = [s + ".NS" for s in symbols]
+    return symbols
 
-# RSI calculation
+# RSI
 def rsi(series, period=14):
 
     delta = series.diff()
@@ -29,7 +31,16 @@ def rsi(series, period=14):
     return 100 - (100/(1+rs))
 
 
-# Backtesting function
+# Relative strength vs Nifty
+def relative_strength(stock_df, index_df):
+
+    stock_return = stock_df["Close"].pct_change().sum()
+    index_return = index_df["Close"].pct_change().sum()
+
+    return round((stock_return - index_return)*100,2)
+
+
+# Backtest
 def backtest(df):
 
     wins = 0
@@ -46,7 +57,6 @@ def backtest(df):
 
             entry = close
             target = entry * 1.05
-            stop = entry * 0.97
 
             future = df["Close"].iloc[i:i+5]
 
@@ -64,83 +74,87 @@ def backtest(df):
 # Scanner
 def scan():
 
+    stocks = load_stocks()
+
     results = []
 
-    for stock in stocks:
+    index_df = yf.download("^NSEI", period="1y", progress=False)
 
-        df = yf.download(stock, period="1y", interval="1d", progress=False)
+    for stock in stocks[:100]:  # limit for speed (increase later)
 
-        if df.empty or len(df) < 220:
+        try:
+
+            df = yf.download(stock, period="1y", interval="1d", progress=False)
+
+            if df.empty or len(df) < 220:
+                continue
+
+            df["SMA44"] = df["Close"].rolling(44).mean()
+            df["SMA200"] = df["Close"].rolling(200).mean()
+            df["RSI"] = rsi(df["Close"])
+            df["High20"] = df["High"].rolling(20).max()
+
+            latest = df.iloc[-1]
+
+            close = float(latest["Close"])
+            sma44 = float(latest["SMA44"])
+            sma200 = float(latest["SMA200"])
+            r = float(latest["RSI"])
+            high20 = float(latest["High20"])
+            volume = float(latest["Volume"])
+            avg_vol = float(df["Volume"].mean())
+
+            score = 0
+
+            if close > sma44:
+                score += 20
+
+            if sma44 > sma200:
+                score += 20
+
+            if 50 < r < 65:
+                score += 20
+
+            if volume > avg_vol:
+                score += 20
+
+            if close >= high20 * 0.98:
+                score += 20
+
+            rs = relative_strength(df, index_df)
+
+            entry = round(close,2)
+            stoploss = round(close*0.97,2)
+            target = round(close*1.06,2)
+
+            winrate = backtest(df)
+
+            results.append({
+                "Stock": stock,
+                "AI Score": score,
+                "Relative Strength %": rs,
+                "Backtest WinRate %": winrate,
+                "Entry": entry,
+                "Stoploss": stoploss,
+                "Target": target
+            })
+
+        except:
             continue
-
-        # Indicators
-        df["SMA44"] = df["Close"].rolling(44).mean()
-        df["SMA200"] = df["Close"].rolling(200).mean()
-        df["RSI"] = rsi(df["Close"])
-        df["High20"] = df["High"].rolling(20).max()
-
-        latest = df.iloc[-1]
-
-        close = float(latest["Close"])
-        sma44 = float(latest["SMA44"])
-        sma200 = float(latest["SMA200"])
-        r = float(latest["RSI"])
-        high20 = float(latest["High20"])
-        volume = float(latest["Volume"])
-        avg_vol = float(df["Volume"].mean())
-
-        score = 0
-
-        # Trend conditions
-        if close > sma44:
-            score += 20
-
-        if sma44 > sma200:
-            score += 20
-
-        # Momentum
-        if 50 < r < 65:
-            score += 20
-
-        # Volume spike
-        if volume > avg_vol:
-            score += 20
-
-        # Breakout
-        breakout = close >= high20 * 0.98
-
-        if breakout:
-            score += 20
-
-        # Trade levels
-        entry = round(close,2)
-        stoploss = round(close*0.97,2)
-        target = round(close*1.06,2)
-
-        winrate = backtest(df)
-
-        results.append({
-            "Stock": stock,
-            "Price": entry,
-            "AI Probability %": score,
-            "Backtest WinRate %": winrate,
-            "Entry": entry,
-            "Stoploss": stoploss,
-            "Target": target
-        })
 
     df_results = pd.DataFrame(results)
 
     if not df_results.empty:
-        df_results = df_results.sort_values(by="AI Probability %", ascending=False)
+        df_results = df_results.sort_values(by=["AI Score","Relative Strength %"], ascending=False)
 
     return df_results
 
 
-# UI button
-if st.button("Run Arth Sutra Scanner"):
+if st.button("Run Arth Sutra PRO Scanner"):
 
-    data = scan()
+    with st.spinner("Scanning NSE stocks..."):
+
+        data = scan()
 
     if data.empty:
 
@@ -153,5 +167,5 @@ if st.button("Run Arth Sutra Scanner"):
         best = data.iloc[0]
 
         st.success(
-            f"Top Stock: {best['Stock']} | Probability {best['AI Probability %']}% | Backtest WinRate {best['Backtest WinRate %']}%"
+            f"Best Opportunity: {best['Stock']} | Score {best['AI Score']} | WinRate {best['Backtest WinRate %']}%"
         )
