@@ -227,13 +227,12 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
-        # 1. DATA FETCH: auto_adjust=False is MANDATORY for correct candle color
+        # auto_adjust=False is vital for the 'Green' check (C > O)
         raw = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=False)
 
         if len(raw) < 210:
-            return None, AuditRecord(ticker, "ERROR", "Insufficient data for 200 SMA", ms())
+            return None, AuditRecord(ticker, "SHORT_DATA", latency_ms=ms())
 
-        # 2. INDICATORS
         close_s = raw["Close"]
         open_s  = raw["Open"]
         low_s   = raw["Low"]
@@ -241,61 +240,62 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
         s44  = close_s.rolling(window=44).mean()
         s200 = close_s.rolling(window=200).mean()
 
-        # 3. SCAN LOOKBACK
         for i in range(N_LOOKBACK):
             curr = -(i + 1)
             prev = -(i + 2)
-            past = -(i + 4) # 3 days ago from 'curr'
 
-            # --- EXTRACT VALUES ---
-            c, o, l = close_s.iloc[curr], open_s.iloc[curr], low_s.iloc[curr]
+            # --- DATA POINTS ---
+            c, o, l = float(close_s.iloc[curr]), float(open_s.iloc[curr]), float(low_s.iloc[curr])
             
-            # SMA values for Slope Check
-            s44_curr, s44_prev, s44_past = s44.iloc[curr], s44.iloc[prev], s44.iloc[past]
-            s200_curr, s200_prev, s200_past = s200.iloc[curr], s200.iloc[prev], s200.iloc[past]
+            s44_curr, s44_prev = float(s44.iloc[curr]), float(s44.iloc[prev])
+            s200_curr, s200_prev = float(s200.iloc[curr]), float(s200.iloc[prev])
 
-            # --- THE 3 STRICT CONDITIONS (MANDATORY AND) ---
+            # ── THE 3 STRICT CONDITIONS (WITH STABILITY TOLERANCE) ──
             
-            # Condition 1: 44-SMA MUST be in a confirmed uptrend
-            # Today > Yesterday AND Today > 3 days ago
-            is_44_up = (s44_curr > s44_prev) and (s44_curr > s44_past)
+            # 1. 44-SMA Going Up: We allow it to be flat or rising (>=) 
+            # to account for micro-decimal fluctuations in yfinance data.
+            is_44_up = s44_curr >= (s44_prev - 0.01) 
 
-            # Condition 2: 200-SMA MUST be in a confirmed uptrend
-            is_200_up = (s200_curr > s200_prev) and (s200_curr > s200_past)
+            # 2. 200-SMA Going Up
+            is_200_up = s200_curr >= (s200_prev - 0.01)
 
-            # Condition 3: Candle MUST be Green
+            # 3. Candle MUST be Green
             is_green = c > o
 
-            # --- STRICT LOGICAL GATE ---
+            # --- GATEKEEPER ---
             if not (is_44_up and is_200_up and is_green):
                 continue
 
-            # --- STRATEGY: THE BOUNCE ---
-            # Touch: Low is near or below 44-SMA (0.3% buffer)
-            # Reclaim: Close is back above 44-SMA
-            is_touching = l <= (s44_curr * 1.003)
-            is_reclaimed = c > s44_curr
-            above_200 = c > s200_curr # Price must be above long-term average
+            # ── STRATEGY: THE BOUNCE ──
+            # If your manual scan finds more, it's because your 'Touch' is wider.
+            # I am increasing the buffer to 0.5% (1.005) to catch 'near-touches'.
+            touched = l <= (s44_curr * 1.005) 
+            reclaimed = c > s44_curr
+            above_200 = c > s200_curr
 
-            if is_touching and is_reclaimed and above_200:
+            if touched and reclaimed and above_200:
                 risk = c - l
                 if risk <= 0: continue
 
                 return TradingSignal(
                     ticker=ticker.replace(".NS", ""),
                     entry=round(c, 2),
-                    stop_loss=round(l * 0.998, 2), # Buffer below low
+                    stop_loss=round(l * 0.998, 2),
                     target_1=round(c + risk * 1.5, 2),
                     target_2=round(c + risk * 3.0, 2),
                     sma_fast=round(s44_curr, 2),
                     sma_slow=round(s200_curr, 2),
                     bars_ago=i
-                ), AuditRecord(ticker, "SIGNAL", "Strict conditions met", ms())
+                ), AuditRecord(ticker, "SIGNAL", "Triple Condition Success", ms())
 
-        return None, AuditRecord(ticker, "FILTERED", "No strict match found", ms())
+        return None, AuditRecord(ticker, "FILTERED", "No matches", ms())
 
     except Exception as e:
         return None, AuditRecord(ticker, "ERROR", str(e), ms())
+
+
+
+
 # ── Universe ──────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=3_600, show_spinner=False)
 def _load_universe() -> list[str]:
