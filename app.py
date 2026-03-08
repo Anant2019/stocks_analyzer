@@ -1,3 +1,26 @@
+
+from __future__ import annotations
+
+import logging
+import math
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Final
+
+import pandas as pd
+import streamlit as st
+import yfinance as yf
+
+# ── Logging (backend only) ────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+logger = logging.getLogger("arth_sutra.engine")
+
 # ── Updated Strategy Constants ──────────────────────────────────────────────
 SMA_FAST:     Final[int]   = 44
 SMA_SLOW:     Final[int]   = 200
