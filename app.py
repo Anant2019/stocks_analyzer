@@ -1,8 +1,6 @@
-from flask import Flask
+import streamlit as st
 import yfinance as yf
 import pandas as pd
-
-app = Flask(__name__)
 
 stocks = [
 "RELIANCE.NS",
@@ -15,9 +13,10 @@ stocks = [
 ]
 
 def calculate_rsi(data, period=14):
+
     delta = data.diff()
     gain = delta.clip(lower=0)
-    loss = -1 * delta.clip(upper=0)
+    loss = -delta.clip(upper=0)
 
     avg_gain = gain.rolling(period).mean()
     avg_loss = loss.rolling(period).mean()
@@ -28,7 +27,7 @@ def calculate_rsi(data, period=14):
     return rsi
 
 
-def scan():
+def scan_stocks():
 
     results = []
 
@@ -59,52 +58,27 @@ def scan():
         if latest["Volume"] > df["Volume"].mean():
             score += 25
 
-        probability = score
-
         results.append({
-            "stock": stock,
-            "price": round(latest["Close"],2),
-            "rsi": round(latest["RSI"],2),
-            "probability": probability
+            "Stock": stock,
+            "Price": round(latest["Close"],2),
+            "RSI": round(latest["RSI"],2),
+            "Probability %": score
         })
 
-    results = sorted(results, key=lambda x: x["probability"], reverse=True)
+    df = pd.DataFrame(results)
+    df = df.sort_values(by="Probability %", ascending=False)
 
-    return results
-
-
-@app.route("/")
-def home():
-
-    data = scan()
-
-    html = """
-    <h1 style='text-align:center'>Swing Trading Stock Scanner</h1>
-    <table border=1 style='margin:auto;border-collapse:collapse;font-size:18px'>
-    <tr>
-    <th>Stock</th>
-    <th>Price</th>
-    <th>RSI</th>
-    <th>Success Probability %</th>
-    </tr>
-    """
-
-    for d in data:
-
-        color = "green" if d["probability"] >= 75 else "orange"
-
-        html += f"""
-        <tr>
-        <td>{d['stock']}</td>
-        <td>{d['price']}</td>
-        <td>{d['rsi']}</td>
-        <td style='color:{color}'>{d['probability']}%</td>
-        </tr>
-        """
-
-    html += "</table>"
-
-    return html
+    return df
 
 
-app.run()
+st.title("📈 Swing Trading Stock Scanner")
+
+if st.button("Scan Stocks"):
+
+    data = scan_stocks()
+
+    st.dataframe(data)
+
+    best = data.iloc[0]
+
+    st.success(f"Best Stock: {best['Stock']} with {best['Probability %']}% probability")
