@@ -31,7 +31,7 @@ This version uses:
 
 All other conditions unchanged from Pine Script.
 """
-
+'''
 from __future__ import annotations
 
 import logging
@@ -238,6 +238,183 @@ def _load_universe() -> list[str]:
         logger.warning("NSE fetch failed (%s). Using fallback.", exc)
         return list(FALLBACK)
 
+'''
+
+from __future__ import annotations
+
+import logging
+import math
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Final, List, Tuple, Optional
+
+import pandas as pd
+import streamlit as st
+import yfinance as yf
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+logger = logging.getLogger("arth_sutra.engine")
+
+# ── Strategy Constants ────────────────────────────────────────────────────────
+# Fixed: Defined at top level so render_dashboard() can always see them
+EMA_FAST:     Final[int]   = 44
+EMA_SLOW:     Final[int]   = 200
+N_LOOKBACK:    Final[int]   = 5
+TOUCH_BUFFER:  Final[float] = 1.001  # 0.1% buffer for high precision
+SL_BUFFER:     Final[float] = 0.998
+RISK_MULT:     Final[float] = 2.0
+MIN_BARS:      Final[int]   = EMA_SLOW + N_LOOKBACK + 5
+CONCURRENCY:   Final[int]   = 25
+PERIOD:        Final[str]   = "2y"
+INTERVAL:      Final[str]   = "1d"
+COLS:          Final[int]   = 4
+
+FALLBACK: Final[List[str]] = ["RELIANCE.NS", "TCS.NS", "TATAMOTORS.NS"]
+
+# ── Data Objects ──────────────────────────────────────────────────────────────
+@dataclass(frozen=True, slots=True)
+class TradingSignal:
+    ticker:    str
+    entry:     float
+    stop_loss: float
+    target_1:  float
+    target_2:  float
+    ema_fast:  float
+    ema_slow:  float
+    bars_ago:  int
+    scanned_at: datetime = field(default_factory=datetime.utcnow)
+
+    @property
+    def risk(self) -> float:
+        return round(self.entry - self.stop_loss, 4)
+
+    @property
+    def rr(self) -> float:
+        return round((self.target_2 - self.entry) / self.risk, 2) if self.risk > 0 else 0.0
+
+@dataclass(slots=True)
+class AuditRecord:
+    ticker:     str
+    outcome:    str
+    reason:     str   = ""
+    latency_ms: float = 0.0
+
+# ── Signal Computation ────────────────────────────────────────────────────────
+def _compute_signal(ticker: str) -> Tuple[Optional[TradingSignal], AuditRecord]:
+    t0 = time.perf_counter()
+    def get_ms(): return round((time.perf_counter() - t0) * 1_000, 2)
+
+    try:
+        # 1. Fetch Data
+        raw = yf.download(ticker, period=PERIOD, interval=INTERVAL, progress=False, auto_adjust=True)
+
+        if raw is None or raw.empty or len(raw) < MIN_BARS:
+            return None, AuditRecord(ticker, "INSUFFICIENT_DATA", latency_ms=get_ms())
+
+        # 2. Calculate Indicators (Switching to EMA for better accuracy)
+        # EMA handles the "lag" issue where signals look visually off on charts
+        ema44  = raw["Close"].ewm(span=EMA_FAST, adjust=False).mean()
+        ema200 = raw["Close"].ewm(span=EMA_SLOW, adjust=False).mean()
+
+        close_s, open_s, high_s, low_s = raw["Close"], raw["Open"], raw["High"], raw["Low"]
+
+        # 3. Lookback Loop
+        for i in range(N_LOOKBACK):
+            cur, p2 = -(i + 1), -(i + 3)
+            
+            c, o, h, l = float(close_s.iloc[cur]), float(open_s.iloc[cur]), float(high_s.iloc[cur]), float(low_s.iloc[cur])
+            e44_c, e200_c = float(ema44.iloc[cur]), float(ema200.iloc[cur])
+            e44_p2, e200_p2 = float(ema44.iloc[p2]), float(ema200.iloc[p2])
+            mid = (h + l) / 2.0
+
+            # --- CONDITION: Trending ---
+            if not (e44_c > e200_c and e44_c > e44_p2 and e200_c > e200_p2):
+                continue
+
+            # --- CONDITION: Strong Candle ---
+            if not (c > o and c > mid):
+                continue
+
+            # --- CONDITION: Touch & Reclaim ---
+            # Using 1.001 (0.1% buffer) to catch touches that are mathematically off by a few paise
+            if not (l <= (e44_c * TOUCH_BUFFER) and c > e44_c):
+                continue
+
+            # --- CONDITION: Staleness Check ---
+            # Ensures if signal was 3 days ago, the SL wasn't hit in the meantime
+            risk = c - l
+            sl_val = l * SL_BUFFER
+            if i > 0:
+                if (low_s.iloc[cur+1:] < sl_val).any():
+                    continue
+
+            # Signal Found
+            return TradingSignal(
+                ticker=ticker.replace(".NS", ""),
+                entry=round(c, 2),
+                stop_loss=round(sl_val, 2),
+                target_1=round(c + risk, 2),
+                target_2=round(c + risk * RISK_MULT, 2),
+                ema_fast=round(e44_c, 2),
+                ema_slow=round(e200_c, 2),
+                bars_ago=i
+            ), AuditRecord(ticker, "SIGNAL", reason=f"i={i}", latency_ms=get_ms())
+
+        return None, AuditRecord(ticker, "FILTERED", latency_ms=get_ms())
+
+    except Exception as e:
+        return None, AuditRecord(ticker, "ERROR", reason=str(e), latency_ms=get_ms())
+
+# ── Universe ──────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=3600)
+def _load_universe() -> List[str]:
+    try:
+        url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
+        return [f"{s}.NS" for s in pd.read_csv(url)["Symbol"].tolist()]
+    except:
+        return list(FALLBACK)
+
+# ── UI/Dashboard Logic ────────────────────────────────────────────────────────
+def render_dashboard():
+    st.set_page_config(page_title="ArthSutra Engine", layout="wide")
+    st.title("ArthSutra: Swing Triple Bullish")
+
+    if not st.button("Run Scanner"):
+        return
+
+    universe = _load_universe()
+    progress_bar = st.progress(0)
+    
+    # Grid setup using the COLS constant
+    cols = st.columns(COLS)
+    found = 0
+    
+    with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
+        futures = {pool.submit(_compute_signal, t): t for t in universe}
+        for idx, future in enumerate(as_completed(futures)):
+            progress_bar.progress((idx + 1) / len(universe))
+            
+            try:
+                sig, audit = future.result()
+                if sig:
+                    with cols[found % COLS]:
+                        st.metric(sig.ticker, f"₹{sig.entry}", f"i={sig.bars_ago}")
+                        st.caption(f"SL: {sig.stop_loss} | Tgt: {sig.target_2}")
+                    found += 1
+            except Exception as e:
+                logger.error(f"Thread failed: {e}")
+
+    st.success(f"Scan complete. Found {found} signals.")
+
+if __name__ == "__main__":
+    render_dashboard()
 
 # =============================================================================
 # PRESENTATION — Midnight Dark · JetBrains Mono · 4-col streaming bento
