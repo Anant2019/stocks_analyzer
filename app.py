@@ -237,194 +237,131 @@ def _load_universe() -> list[str]:
     except Exception as exc:
         logger.warning("NSE fetch failed (%s). Using fallback.", exc)
         return list(FALLBACK)
-
+"""
 '''
 
 
-
 import logging
-import math
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Final, List, Tuple, Optional
-
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# ── Logging ──────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
-logger = logging.getLogger("arth_sutra.engine")
-
-# ── Strategy Constants ────────────────────────────────────────────────────────
-# Fixed: Defined at top level so render_dashboard() can always see them
+# ── Constants ──────────────────────────────────────────────────────────────
 SMA_FAST:     Final[int]   = 44
 SMA_SLOW:     Final[int]   = 200
 N_LOOKBACK:    Final[int]   = 5
-TOUCH_BUFFER:  Final[float] = 1.003
+TOUCH_BUFFER:  Final[float] = 1.005  # Increased to 0.5% for better capture
 SL_BUFFER:     Final[float] = 0.998
 RISK_MULT:     Final[float] = 2.0
-MIN_BARS:      Final[int]   = SMA_SLOW + N_LOOKBACK + 5
-CONCURRENCY:   Final[int]   = 25
-PERIOD:        Final[str]   = "2y"
-INTERVAL:      Final[str]   = "1d"
+MIN_BARS:      Final[int]   = 250   # Ensure a full year of trading days
+CONCURRENCY:   Final[int]   = 30
 COLS:          Final[int]   = 4
 
-FALLBACK: Final[List[str]] = ["RELIANCE.NS", "TCS.NS", "TATAMOTORS.NS"]
-
-# ── Data Objects ──────────────────────────────────────────────────────────────
 @dataclass(frozen=True, slots=True)
 class TradingSignal:
-    ticker:    str
-    entry:     float
-    stop_loss: float
-    target_1:  float
-    target_2:  float
-    sma_fast:  float
-    sma_slow:  float
-    bars_ago:  int
-    scanned_at: datetime = field(default_factory=datetime.utcnow)
-
-    @property
-    def risk(self) -> float:
-        return round(self.entry - self.stop_loss, 4)
-
-    @property
-    def rr(self) -> float:
-        return round((self.target_2 - self.entry) / self.risk, 2) if self.risk > 0 else 0.0
+    ticker: str; entry: float; stop_loss: float; target_1: float; target_2: float
+    sma_fast: float; sma_slow: float; bars_ago: int; scanned_at: datetime = field(default_factory=datetime.utcnow)
 
 @dataclass(slots=True)
 class AuditRecord:
-    ticker:     str
-    outcome:    str
-    reason:     str   = ""
-    latency_ms: float = 0.0
+    ticker: str; outcome: str; reason: str = ""; latency_ms: float = 0.0
 
 # ── Signal Computation ────────────────────────────────────────────────────────
 def _compute_signal(ticker: str) -> Tuple[Optional[TradingSignal], AuditRecord]:
     t0 = time.perf_counter()
     get_ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
-
     try:
-        # 1. Extended data for SMA-200 stability
-        raw = yf.download(ticker, period="3y", interval="1d", progress=False, auto_adjust=True)
+        # 1. Fetch data
+        raw = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
+        if raw is None or len(raw) < MIN_BARS:
+            return None, AuditRecord(ticker, "FAIL", "Short History", get_ms())
 
-        if raw is None or raw.empty or len(raw) < SMA_SLOW + 10:
-            return None, AuditRecord(ticker, "INSUFFICIENT_DATA", latency_ms=get_ms())
-
-        # 2. SMA Calculation
-        s44  = raw["Close"].rolling(window=SMA_FAST).mean()
-        s200 = raw["Close"].rolling(window=SMA_SLOW).mean()
-
-        # 3. Use raw numpy arrays (Prevents IndexErrors and is 10x faster)
-        closes, opens, highs, lows = raw["Close"].values, raw["Open"].values, raw["High"].values, raw["Low"].values
-        v44, v200 = s44.values, s200.values
-
-        # 4. The Scan Loop (Last 5 days)
+        # 2. Indicators - Remove NaNs to prevent loop failure
+        s44 = raw["Close"].rolling(SMA_FAST).mean()
+        s200 = raw["Close"].rolling(SMA_SLOW).mean()
+        
+        # 3. Use .iloc to get clean values
         for i in range(N_LOOKBACK):
             idx = -(i + 1)
-            p2  = -(i + 3) # Exactly 2 bars before the 'idx' bar
+            p2  = -(i + 3)
 
-            # Current values at bar 'i'
-            c, o, h, l = closes[idx], opens[idx], highs[idx], lows[idx]
-            s44_c, s200_c = v44[idx], v200[idx]
-            s200_p2 = v200[p2] # 200-SMA slope check
-            
-            mid = (h + l) / 2.0
+            # Basic Price
+            c, o, h, l = raw["Close"].iloc[idx], raw["Open"].iloc[idx], raw["High"].iloc[idx], raw["Low"].iloc[idx]
+            s44_c, s200_c = s44.iloc[idx], s200.iloc[idx]
+            s200_p2 = s200.iloc[p2]
 
-            # ── THE FIX: RELAXED TREND ─────────────────────────────────────
-            # We only care that 44 > 200 and the 200-SMA is rising.
-            # We removed the 's44_c > s44_p2' requirement which was too strict.
-            if not (c > s200_c and s44_c > s200_c and s200_c > s200_p2):
-                continue
+            # REJECTION REASONS (Order of importance)
+            if not (s44_c > s200_c): 
+                continue # Death Cross
+            if not (s200_c > s200_p2): 
+                continue # Major Trend Down
+            if not (c > s44_c): 
+                continue # Closed below SMA
+            if not (l <= s44_c * TOUCH_BUFFER): 
+                continue # Didn't touch SMA
+            if not (c > o): 
+                continue # Red Candle
 
-            # ── CANDLE STRENGTH ───────────────────────────────────────────
-            # Must be a green candle closing in the top 50% of the day's range
-            if not (c > o and c > mid):
-                continue
-
-            # ── THE TOUCH & RECLAIM ───────────────────────────────────────
-            # Touch: Low <= SMA44 (with 0.3% buffer)
-            # Reclaim: Close > SMA44
-            if not (l <= (s44_c * TOUCH_BUFFER) and c > s44_c):
-                continue
-
-            # ── SURVIVAL CHECK ────────────────────────────────────────────
+            # If all passed
             risk = c - l
-            sl_val = l * SL_BUFFER
-            if i > 0:
-                # If checking a bar from 3 days ago, ensure price didn't hit SL since then
-                if (lows[idx+1:] < sl_val).any():
-                    continue
-
-            # SIGNAL FOUND
             return TradingSignal(
-                ticker=ticker.replace(".NS", ""),
-                entry=round(c, 2),
-                stop_loss=round(sl_val, 2),
-                target_1=round(c + risk, 2),
-                target_2=round(c + (risk * RISK_MULT), 2),
-                sma_fast=round(s44_c, 2),
-                sma_slow=round(s200_c, 2),
-                bars_ago=i
-            ), AuditRecord(ticker, "SIGNAL", reason=f"Found at i={i}", latency_ms=get_ms())
+                ticker=ticker.replace(".NS", ""), entry=round(c, 2),
+                stop_loss=round(l * SL_BUFFER, 2), target_1=round(c + risk, 2),
+                target_2=round(c + risk * 2, 2), sma_fast=round(s44_c, 2),
+                sma_slow=round(s200_c, 2), bars_ago=i
+            ), AuditRecord(ticker, "SUCCESS", f"Found i={i}", get_ms())
 
-        return None, AuditRecord(ticker, "FILTERED", latency_ms=get_ms())
+        return None, AuditRecord(ticker, "FILTERED", "No match in lookback", get_ms())
+    except Exception as e:
+        return None, AuditRecord(ticker, "ERROR", str(e), get_ms())
 
-    except Exception as exc:
-        return None, AuditRecord(ticker, "ERROR", reason=str(exc), latency_ms=get_ms())
-
-
-# ── Universe ──────────────────────────────────────────────────────────────────
+# ── Universe & Dashboard ──────────────────────────────────────────────────────
 @st.cache_data(ttl=3600)
-def _load_universe() -> List[str]:
+def _load_universe():
     try:
         url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
         return [f"{s}.NS" for s in pd.read_csv(url)["Symbol"].tolist()]
-    except:
-        return list(FALLBACK)
+    except: return ["RELIANCE.NS", "TCS.NS", "TATAMOTORS.NS"]
 
-# ── UI/Dashboard Logic ────────────────────────────────────────────────────────
 def render_dashboard():
-    st.set_page_config(page_title="ArthSutra Engine", layout="wide")
-    st.title("ArthSutra: Swing Triple Bullish")
+    st.set_page_config(layout="wide")
+    st.title("ArthSutra: SMA 44 Scanner")
 
-    if not st.button("Run Scanner"):
-        return
+    if st.button("Start Global Scan"):
+        universe = _load_universe()
+        results, audits = [], []
+        progress = st.progress(0)
+        
+        with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
+            futures = {pool.submit(_compute_signal, t): t for t in universe}
+            for i, f in enumerate(as_completed(futures)):
+                sig, aud = f.result()
+                audits.append(aud)
+                if sig: results.append(sig)
+                progress.progress((i + 1) / len(universe))
 
-    universe = _load_universe()
-    progress_bar = st.progress(0)
-    
-    # Grid setup using the COLS constant
-    cols = st.columns(COLS)
-    found = 0
-    
-    with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
-        futures = {pool.submit(_compute_signal, t): t for t in universe}
-        for idx, future in enumerate(as_completed(futures)):
-            progress_bar.progress((idx + 1) / len(universe))
+        # Display Results
+        if results:
+            st.subheader(f"✅ Found {len(results)} Signals")
+            cols = st.columns(COLS)
+            for idx, s in enumerate(results):
+                with cols[idx % COLS]:
+                    st.success(f"**{s.ticker}**")
+                    st.write(f"Entry: ₹{s.entry} | SL: {s.stop_loss}")
+        else:
+            st.warning("No matches found in Nifty 500.")
             
-            try:
-                sig, audit = future.result()
-                if sig:
-                    with cols[found % COLS]:
-                        st.metric(sig.ticker, f"₹{sig.entry}", f"i={sig.bars_ago}")
-                        st.caption(f"SL: {sig.stop_loss} | Tgt: {sig.target_2}")
-                    found += 1
-            except Exception as e:
-                logger.error(f"Thread failed: {e}")
-
-    st.success(f"Scan complete. Found {found} signals.")
+        # THE FIX: Debugging Table
+        with st.expander("View Scan Audit (Why stocks failed)"):
+            st.table(pd.DataFrame([{"Ticker": a.ticker, "Outcome": a.outcome, "Reason": a.reason} for a in audits[:20]]))
 
 if __name__ == "__main__":
     render_dashboard()
-
 # =============================================================================
 # PRESENTATION — Midnight Dark · JetBrains Mono · 4-col streaming bento
 # =============================================================================
