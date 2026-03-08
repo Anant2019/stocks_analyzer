@@ -108,23 +108,121 @@ class AuditRecord:
     latency_ms: float = 0.0
 
 
-# ── Signal computation ────────────────────────────────────────────────────────
+# # ── Signal computation ────────────────────────────────────────────────────────
+# def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
+#     """
+#     Exact Pine Script logic, scanned across the last N_LOOKBACK bars.
+
+#     Pine (verbatim):
+#         is_trending = s44 > s200
+#                       and s44  > s44[2]     ← s44[2] = 2 bars ago = iloc[-3]
+#                       and s200 > s200[2]
+
+#         is_strong   = close > open
+#                       and close > (high + low) / 2
+
+#         buy = is_trending and is_strong
+#               and low   <= s44              ← wick touches/pierces the SMA
+#               and close >  s44              ← close reclaims above it
+#     """
+#     t0 = time.perf_counter()
+#     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
+
+#     try:
+#         raw: pd.DataFrame = yf.download(
+#             ticker,
+#             period=PERIOD,
+#             interval=INTERVAL,
+#             progress=False,
+#             auto_adjust=True,
+#         )
+
+#         if len(raw) < MIN_BARS:
+#             return None, AuditRecord(
+#                 ticker=ticker, outcome="INSUFFICIENT_DATA",
+#                 reason=f"{len(raw)} bars < {MIN_BARS}", latency_ms=ms(),
+#             )
+
+#         close_s = raw["Close"]
+#         high_s  = raw["High"]
+#         low_s   = raw["Low"]
+#         open_s  = raw["Open"]
+
+#         s44  = close_s.rolling(SMA_FAST,  min_periods=SMA_FAST).mean()
+#         s200 = close_s.rolling(SMA_SLOW, min_periods=SMA_SLOW).mean()
+
+#         for i in range(N_LOOKBACK):
+#             # Current bar index and the one 2 bars before it (Pine's [2])
+#             cur  = -(i + 1)   # e.g. i=0 → -1 (today)
+#             prev2 = -(i + 3)  # 2 bars before cur  (Pine: s44[2])
+
+#             s44_cur   = float(s44.iloc[cur])
+#             s200_cur  = float(s200.iloc[cur])
+#             s44_p2    = float(s44.iloc[prev2])
+#             s200_p2   = float(s200.iloc[prev2])
+
+#             c   = float(close_s.iloc[cur])
+#             o   = float(open_s.iloc[cur])
+#             h   = float(high_s.iloc[cur])
+#             l   = float(low_s.iloc[cur])
+#             mid = (h + l) / 2.0
+
+#             # ── Pine: is_trending ──────────────────────────────────────────
+#             # 44 > 200, and BOTH rising vs 2 bars ago
+#             if not (s44_cur > s200_cur and s44_cur > s44_p2 and s200_cur > s200_p2):
+#                 continue
+
+#             # ── Pine: is_strong ────────────────────────────────────────────
+#             # Green candle AND strong close (above the bar's midpoint)
+#             if not (c > o and c > mid):
+#                 continue
+
+#             # ── Pine: low <= s44 ───────────────────────────────────────────
+#             # The wick must reach DOWN TO or BELOW the 44-SMA.
+#             # TOUCH_BUFFER=1.003 only for float rounding — low must be ≤ s44.
+#             # A low ABOVE the s44 is NOT a touch.
+#             if not (l <= s44_cur * TOUCH_BUFFER):
+#                 continue
+
+#             # ── Pine: close > s44 ──────────────────────────────────────────
+#             # Close reclaims above the SMA after the touch.
+#             if not (c > s44_cur):
+#                 continue
+
+#             # ── All conditions met ─────────────────────────────────────────
+#             risk  = c - l
+#             if risk <= 0:
+#                 continue
+
+#             signal = TradingSignal(
+#                 ticker=ticker.replace(".NS", ""),
+#                 entry=round(c, 2),
+#                 stop_loss=round(l * SL_BUFFER, 2),
+#                 target_1=round(c + risk, 2),
+#                 target_2=round(c + risk * RISK_MULT, 2),
+#                 sma_fast=round(s44_cur, 2),
+#                 sma_slow=round(s200_cur, 2),
+#                 bars_ago=i,
+#             )
+#             return signal, AuditRecord(
+#                 ticker=ticker, outcome="SIGNAL",
+#                 reason=f"bars_ago={i}", latency_ms=ms(),
+#             )
+
+#         return None, AuditRecord(
+#             ticker=ticker, outcome="FILTERED",
+#             reason=f"No touch+reclaim in last {N_LOOKBACK} bars",
+#             latency_ms=ms(),
+#         )
+
+#     except Exception as exc:
+#         logger.error("Error %s: %s", ticker, exc, exc_info=True)
+#         return None, AuditRecord(
+#             ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=ms(),
+#         )
+
+
 def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
-    """
-    Exact Pine Script logic, scanned across the last N_LOOKBACK bars.
-
-    Pine (verbatim):
-        is_trending = s44 > s200
-                      and s44  > s44[2]     ← s44[2] = 2 bars ago = iloc[-3]
-                      and s200 > s200[2]
-
-        is_strong   = close > open
-                      and close > (high + low) / 2
-
-        buy = is_trending and is_strong
-              and low   <= s44              ← wick touches/pierces the SMA
-              and close >  s44              ← close reclaims above it
-    """
     t0 = time.perf_counter()
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
@@ -152,10 +250,11 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
         s200 = close_s.rolling(SMA_SLOW, min_periods=SMA_SLOW).mean()
 
         for i in range(N_LOOKBACK):
-            # Current bar index and the one 2 bars before it (Pine's [2])
-            cur  = -(i + 1)   # e.g. i=0 → -1 (today)
-            prev2 = -(i + 3)  # 2 bars before cur  (Pine: s44[2])
+            cur   = -(i + 1)   
+            prev_day = -(i + 2) # Yesterday relative to 'cur'
+            prev2 = -(i + 3)  
 
+            # Extracting values and ensuring they are floats
             s44_cur   = float(s44.iloc[cur])
             s200_cur  = float(s200.iloc[cur])
             s44_p2    = float(s44.iloc[prev2])
@@ -165,36 +264,34 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
             o   = float(open_s.iloc[cur])
             h   = float(high_s.iloc[cur])
             l   = float(low_s.iloc[cur])
+            p_c = float(close_s.iloc[prev_day]) # Previous day's close
             mid = (h + l) / 2.0
 
-            # ── Pine: is_trending ──────────────────────────────────────────
-            # 44 > 200, and BOTH rising vs 2 bars ago
+            # ── 1. TREND: 44 > 200, and BOTH rising ────────────────────────
             if not (s44_cur > s200_cur and s44_cur > s44_p2 and s200_cur > s200_p2):
                 continue
 
-            # ── Pine: is_strong ────────────────────────────────────────────
-            # Green candle AND strong close (above the bar's midpoint)
-            if not (c > o and c > mid):
+            # ── 2. STRENGTH (FIXED): Must be Green AND higher than Yesterday ──
+            # c > o: Green Body
+            # c > p_c: Higher than yesterday (Prevents "Gap Down" false green)
+            # c > mid: Strong close in the top half of the candle
+            if not (c > o and c > p_c and c > mid):
                 continue
 
-            # ── Pine: low <= s44 ───────────────────────────────────────────
-            # The wick must reach DOWN TO or BELOW the 44-SMA.
-            # TOUCH_BUFFER=1.003 only for float rounding — low must be ≤ s44.
-            # A low ABOVE the s44 is NOT a touch.
+            # ── 3. TOUCH: Wick reaches or pierces the SMA-44 ────────────────
             if not (l <= s44_cur * TOUCH_BUFFER):
                 continue
 
-            # ── Pine: close > s44 ──────────────────────────────────────────
-            # Close reclaims above the SMA after the touch.
+            # ── 4. RECLAIM: Close is strictly above the SMA-44 ─────────────
             if not (c > s44_cur):
                 continue
 
-            # ── All conditions met ─────────────────────────────────────────
-            risk  = c - l
+            # ── 5. RISK CHECK ──────────────────────────────────────────────
+            risk = c - l
             if risk <= 0:
                 continue
 
-            signal = TradingSignal(
+            return TradingSignal(
                 ticker=ticker.replace(".NS", ""),
                 entry=round(c, 2),
                 stop_loss=round(l * SL_BUFFER, 2),
@@ -203,24 +300,13 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
                 sma_fast=round(s44_cur, 2),
                 sma_slow=round(s200_cur, 2),
                 bars_ago=i,
-            )
-            return signal, AuditRecord(
-                ticker=ticker, outcome="SIGNAL",
-                reason=f"bars_ago={i}", latency_ms=ms(),
-            )
+            ), AuditRecord(ticker=ticker, outcome="SIGNAL", reason=f"i={i}", latency_ms=ms())
 
-        return None, AuditRecord(
-            ticker=ticker, outcome="FILTERED",
-            reason=f"No touch+reclaim in last {N_LOOKBACK} bars",
-            latency_ms=ms(),
-        )
+        return None, AuditRecord(ticker=ticker, outcome="FILTERED", latency_ms=ms())
 
     except Exception as exc:
         logger.error("Error %s: %s", ticker, exc, exc_info=True)
-        return None, AuditRecord(
-            ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=ms(),
-        )
-
+        return None, AuditRecord(ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=ms())
 
 
 # ── Universe ──────────────────────────────────────────────────────────────────
