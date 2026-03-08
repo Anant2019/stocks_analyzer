@@ -270,7 +270,7 @@ N_LOOKBACK:    Final[int]   = 5
 TOUCH_BUFFER:  Final[float] = 1.003
 SL_BUFFER:     Final[float] = 0.998
 RISK_MULT:     Final[float] = 2.0
-MIN_BARS:      Final[int]   = EMA_SLOW + N_LOOKBACK + 5
+MIN_BARS:      Final[int]   = SMA_SLOW + N_LOOKBACK + 5
 CONCURRENCY:   Final[int]   = 25
 PERIOD:        Final[str]   = "2y"
 INTERVAL:      Final[str]   = "1d"
@@ -286,8 +286,8 @@ class TradingSignal:
     stop_loss: float
     target_1:  float
     target_2:  float
-    ema_fast:  float
-    ema_slow:  float
+    sma_fast:  float
+    sma_slow:  float
     bars_ago:  int
     scanned_at: datetime = field(default_factory=datetime.utcnow)
 
