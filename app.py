@@ -1,91 +1,112 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
-from nsetools import Nse
 from datetime import datetime, timedelta
+from nsepy import get_history
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-st.set_page_config(page_title="Arth Sutra PRO 500", layout="wide")
-st.title("📈 Arth Sutra PRO 500 - NSE 500 Scanner")
+st.set_page_config(page_title="Swing Triple Bullish 44-200 NSE Scanner", layout="wide")
+st.title("📈 Swing Triple Bullish 44-200 NSE Scanner")
 
-nse = Nse()
+# ------------------------------
+# Helper functions
+# ------------------------------
+def sma(series, period):
+    return series.rolling(period).mean()
 
-# Fetch list of symbols
-@st.cache_data(ttl=86400)
-def get_nse500_symbols():
+def fetch_stock(symbol):
+    """Fetch 1 year daily OHLC from NSE"""
     try:
-        data = nse.get_index_constituents("NIFTY 500")
-        return [x["symbol"] for x in data]
-    except:
-        return ["RELIANCE","TCS","INFY","HDFCBANK"]
-
-# Fetch historical data from NSE
-def fetch_history(symbol):
-    try:
-        record = nse.get_history(symbol=symbol, 
-                                 start=datetime.now() - timedelta(days=365),
-                                 end=datetime.now())
-        df = pd.DataFrame(record)
+        df = get_history(
+            symbol=symbol,
+            start=datetime.now() - timedelta(days=365),
+            end=datetime.now()
+        )
         if df.empty:
             return None
-        df.rename(columns={"VWAP":"Close"}, inplace=True)  # fallback
         return df
     except:
         return None
 
-# Scan logic
-def scan_stock(symbol):
-    df = fetch_history(symbol)
-    if df is None or df.shape[0] < 100:
+def check_bullish(df):
+    """Apply Pine Script logic"""
+    df["SMA44"] = sma(df["Close"], 44)
+    df["SMA200"] = sma(df["Close"], 200)
+
+    df["SMA44_prev2"] = df["SMA44"].shift(2)
+    df["SMA200_prev2"] = df["SMA200"].shift(2)
+
+    buy_signals = []
+
+    for i in range(2, len(df)):
+        row = df.iloc[i]
+
+        if pd.isna(row["SMA44"]) or pd.isna(row["SMA200"]):
+            continue
+
+        # Pine Script conditions
+        is_trending = (row["SMA44"] > row["SMA200"]) and (row["SMA44"] > df.iloc[i-2]["SMA44"]) and (row["SMA200"] > df.iloc[i-2]["SMA200"])
+        is_strong = (row["Close"] > row["Open"]) and (row["Close"] > (row["High"] + row["Low"])/2)
+        buy = is_trending and is_strong and (row["Low"] <= row["SMA44"]) and (row["Close"] > row["SMA44"])
+
+        if buy:
+            entry = row["Close"]
+            sl = row["Low"]
+            risk = entry - sl
+            tgt1 = entry + risk
+            tgt2 = entry + 2*risk
+
+            buy_signals.append({
+                "Date": row.name.date(),
+                "Entry": round(entry,2),
+                "SL": round(sl,2),
+                "Target1": round(tgt1,2),
+                "Target2": round(tgt2,2)
+            })
+    return buy_signals
+
+def scan_symbol(symbol):
+    df = fetch_stock(symbol)
+    if df is None:
         return None
-
-    df["SMA44"] = df["Close"].rolling(44).mean()
-    df["SMA200"] = df["Close"].rolling(200).mean()
-
-    latest = df.iloc[-1]
-    close = latest["Close"]
-    openp = latest["Open"]
-    sma44 = latest["SMA44"]
-    sma200 = latest["SMA200"]
-
-    if pd.isna(sma44) or pd.isna(sma200):
-        return None
-
-    # Basic bullish logic
-    if close > openp and close > sma44 and sma44 > sma200:
-
-        entry = round(close,2)
-        stoploss = round(close * 0.97, 2)
-        target = round(close * 1.06, 2)
-
-        return {
-            "Symbol": symbol,
-            "Close": entry,
-            "SMA44": round(sma44,2),
-            "SMA200": round(sma200,2),
-            "Entry": entry,
-            "Stoploss": stoploss,
-            "Target": target
-        }
+    signals = check_bullish(df)
+    if signals:
+        for s in signals:
+            s["Symbol"] = symbol
+        return signals
     return None
 
-def run_scan(symbols):
-    results = []
+# ------------------------------
+# NSE 500 symbols (example subset)
+# ------------------------------
+nse500_symbols = [
+    "RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","SBIN","LT","AXISBANK",
+    "ITC","KOTAKBANK","BHARTIARTL","UPL","ADANIPORTS","SBILIFE","ASIANPAINT",
+    "HINDUNILVR","MARUTI","NESTLEIND","BAJAJ-AUTO","TECHM","WIPRO","HCLTECH",
+    "HDFCLIFE","ULTRACEMCO","DIVISLAB","TITAN","INDUSINDBK","POWERGRID","IOC",
+    "ONGC","BPCL","TATAMOTORS","JSWSTEEL","GRASIM","COALINDIA","HDFC","BAJAJFINSV",
+    "EICHERMOT","CIPLA","SUNPHARMA","HINDALCO","BRITANNIA","LTIM","ADANIGREEN",
+    "ICICIPRULI","SHREECEM","M&M","BAJFINANCE","VEDL","HEROMOTOCO","DRREDDY"
+]  # You can expand to full 500
+
+# ------------------------------
+# Streamlit UI
+# ------------------------------
+if st.button("Run Swing Triple Bullish Scanner ⚡"):
+    st.info("Scanning NSE 500 stocks. This may take a few minutes...")
+    all_signals = []
+
     with ThreadPoolExecutor(max_workers=8) as executor:
-        future_to_symbol = {executor.submit(scan_stock, sym): sym for sym in symbols}
-        for future in as_completed(future_to_symbol):
+        futures = {executor.submit(scan_symbol, sym): sym for sym in nse500_symbols}
+        for future in as_completed(futures):
             res = future.result()
             if res:
-                results.append(res)
-    return pd.DataFrame(results)
+                all_signals.extend(res)
 
-if st.button("Run NSE 500 Bullish Scanner ⚡"):
-    symbols = get_nse500_symbols()
-    with st.spinner("Scanning NSE 500 for bullish setups..."):
-        df_signals = run_scan(symbols)
-
-    if df_signals.empty:
-        st.warning("No bullish setups found today — try expanding parameters.")
+    if not all_signals:
+        st.warning("No bullish setups found today — try expanding symbol list or scanning last few days")
     else:
-        st.dataframe(df_signals.sort_values(by="Close", ascending=False))
+        df_res = pd.DataFrame(all_signals)
+        df_res = df_res[["Date","Symbol","Entry","SL","Target1","Target2"]]
+        st.success(f"Found {len(df_res)} bullish setups today!")
+        st.dataframe(df_res.sort_values(by="Entry", ascending=False))
