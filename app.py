@@ -1,127 +1,6 @@
 
-from __future__ import annotations
-
-import logging
-import math
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Final
-
-import pandas as pd
-import streamlit as st
-import yfinance as yf
-
-# ── Logging (backend only) ────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
-logger = logging.getLogger("arth_sutra.engine")
-
-# ── Updated Strategy Constants ──────────────────────────────────────────────
-SMA_FAST:     Final[int]   = 44
-SMA_SLOW:     Final[int]   = 200
-N_LOOKBACK:    Final[int]   = 5
-TOUCH_BUFFER:  Final[float] = 1.001 
-SL_BUFFER:     Final[float] = 0.998
-RISK_MULT:     Final[float] = 2.0
-MIN_BARS:      Final[int]   = SMA_SLOW + N_LOOKBACK + 5
-CONCURRENCY:   Final[int]   = 25
-PERIOD:        Final[str]   = "2y"
-INTERVAL:      Final[str]   = "1d"
-COLS:          Final[int]   = 4
-
-def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
-    # Define start time and lambda BEFORE try block to avoid NameErrors
-    t0 = time.perf_counter()
-    def get_ms(): return round((time.perf_counter() - t0) * 1_000, 2)
-
-    try:
-        # 1. Clean ticker for yfinance
-        target_ticker = ticker if ticker.endswith(".NS") else f"{ticker}.NS"
-        
-        raw: pd.DataFrame = yf.download(
-            target_ticker,
-            period=PERIOD,
-            interval=INTERVAL,
-            progress=False,
-            auto_adjust=True,
-        )
-
-        # 2. Check if data is valid
-        if raw is None or raw.empty or len(raw) < MIN_BARS:
-            return None, AuditRecord(
-                ticker=ticker, 
-                outcome="INSUFFICIENT_DATA", 
-                reason=f"Got {len(raw) if raw is not None else 0} bars",
-                latency_ms=get_ms()
-            )
-
-        # 3. Calculate EMA (Exponential is smoother and fixes "ghost" signals)
-        # Using EMA instead of SMA as it prioritizes recent price action
-        ema44  = raw["Close"].ewm(span=SMA_FAST, adjust=False).mean()
-        ema200 = raw["Close"].ewm(span=SMA_SLOW, adjust=False).mean()
-
-        # 4. Extract Series
-        c_s, o_s, h_s, l_s = raw["Close"], raw["Open"], raw["High"], raw["Low"]
-
-        # 5. Lookback Loop
-        for i in range(N_LOOKBACK):
-            cur, p2 = -(i + 1), -(i + 3)
-            
-            # Check for bounds
-            if abs(p2) > len(raw): continue
-
-            c, o, h, l = float(c_s.iloc[cur]), float(o_s.iloc[cur]), float(h_s.iloc[cur]), float(l_s.iloc[cur])
-            e44_c, e200_c = float(ema44.iloc[cur]), float(ema200.iloc[cur])
-            e44_p2, e200_p2 = float(ema44.iloc[p2]), float(ema200.iloc[p2])
-            
-            mid = (h + l) / 2.0
-
-            # Condition 1: Trend (44 > 200 and both rising)
-            if not (e44_c > e200_c and e44_c > e44_p2 and e200_c > e200_p2):
-                continue
-
-            # Condition 2: Strength (Green candle & strong close)
-            if not (c > o and c > mid):
-                continue
-
-            # Condition 3: Precise Touch & Reclaim
-            # We use a 0.1% buffer (1.001) to handle NSE price tick precision
-            if not (l <= (e44_c * TOUCH_BUFFER) and c > e44_c):
-                continue
-
-            # Condition 4: Staleness (Ensure price didn't break SL after the signal)
-            risk = c - l
-            sl_price = l * SL_BUFFER
-            if i > 0:
-                if (l_s.iloc[cur+1:] < sl_price).any(): continue
-
-            # SUCCESS: Create Signal
-            signal = TradingSignal(
-                ticker=ticker.replace(".NS", ""),
-                entry=round(c, 2),
-                stop_loss=round(sl_price, 2),
-                target_1=round(c + risk, 2),
-                target_2=round(c + risk * RISK_MULT, 2),
-                sma_fast=round(e44_c, 2),
-                sma_slow=round(e200_c, 2),
-                bars_ago=i
-            )
-            return signal, AuditRecord(ticker=ticker, outcome="SIGNAL", reason=f"Bar {i}", latency_ms=get_ms())
-
-        return None, AuditRecord(ticker=ticker, outcome="FILTERED", latency_ms=get_ms())
-
-    except Exception as exc:
-        # Fallback return so the thread pool doesn't crash
-        return None, AuditRecord(ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=get_ms())
 
 
-
-'''
 """
 arth_sutra_engine.py
 Swing Triple Bullish Scanner | Exact Pine Script v5 Port | Python 3.12+
@@ -343,7 +222,6 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
             ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=ms(),
         )
 
-'''
 
 
 # ── Universe ──────────────────────────────────────────────────────────────────
