@@ -25,9 +25,14 @@ logger = logging.getLogger("arth_sutra.engine")
 SMA_FAST:     Final[int]   = 44
 SMA_SLOW:     Final[int]   = 200
 N_LOOKBACK:    Final[int]   = 5
-TOUCH_BUFFER:  Final[float] = 1.001  # Reduced to 0.1% for higher precision
+TOUCH_BUFFER:  Final[float] = 1.001 
 SL_BUFFER:     Final[float] = 0.998
 RISK_MULT:     Final[float] = 2.0
+MIN_BARS:      Final[int]   = SMA_SLOW + N_LOOKBACK + 5
+CONCURRENCY:   Final[int]   = 25
+PERIOD:        Final[str]   = "2y"
+INTERVAL:      Final[str]   = "1d"
+COLS:          Final[int]   = 4
 
 def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
     t0 = time.perf_counter()
