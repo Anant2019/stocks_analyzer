@@ -264,10 +264,10 @@ logger = logging.getLogger("arth_sutra.engine")
 
 # ── Strategy Constants ────────────────────────────────────────────────────────
 # Fixed: Defined at top level so render_dashboard() can always see them
-EMA_FAST:     Final[int]   = 44
-EMA_SLOW:     Final[int]   = 200
+SMA_FAST:     Final[int]   = 44
+SMA_SLOW:     Final[int]   = 200
 N_LOOKBACK:    Final[int]   = 5
-TOUCH_BUFFER:  Final[float] = 1.001  # 0.1% buffer for high precision
+TOUCH_BUFFER:  Final[float] = 1.003
 SL_BUFFER:     Final[float] = 0.998
 RISK_MULT:     Final[float] = 2.0
 MIN_BARS:      Final[int]   = EMA_SLOW + N_LOOKBACK + 5
@@ -312,58 +312,56 @@ def _compute_signal(ticker: str) -> Tuple[Optional[TradingSignal], AuditRecord]:
     def get_ms(): return round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
-        # 1. Fetch Data
         raw = yf.download(ticker, period=PERIOD, interval=INTERVAL, progress=False, auto_adjust=True)
 
         if raw is None or raw.empty or len(raw) < MIN_BARS:
             return None, AuditRecord(ticker, "INSUFFICIENT_DATA", latency_ms=get_ms())
 
-        # 2. Calculate Indicators (Switching to EMA for better accuracy)
-        # EMA handles the "lag" issue where signals look visually off on charts
-        ema44  = raw["Close"].ewm(span=EMA_FAST, adjust=False).mean()
-        ema200 = raw["Close"].ewm(span=EMA_SLOW, adjust=False).mean()
+        # ── 1. REVERTED TO SMA (Simple Moving Average) ─────────────────────
+        s44  = raw["Close"].rolling(window=SMA_FAST).mean()
+        s200 = raw["Close"].rolling(window=SMA_SLOW).mean()
 
         close_s, open_s, high_s, low_s = raw["Close"], raw["Open"], raw["High"], raw["Low"]
 
-        # 3. Lookback Loop
         for i in range(N_LOOKBACK):
             cur, p2 = -(i + 1), -(i + 3)
             
+            # Use float() to ensure compatibility with rounding logic
             c, o, h, l = float(close_s.iloc[cur]), float(open_s.iloc[cur]), float(high_s.iloc[cur]), float(low_s.iloc[cur])
-            e44_c, e200_c = float(ema44.iloc[cur]), float(ema200.iloc[cur])
-            e44_p2, e200_p2 = float(ema44.iloc[p2]), float(ema200.iloc[p2])
+            s44_c, s200_c = float(s44.iloc[cur]), float(s200.iloc[cur])
+            s44_p2, s200_p2 = float(s44.iloc[p2]), float(s200.iloc[p2])
             mid = (h + l) / 2.0
 
-            # --- CONDITION: Trending ---
-            if not (e44_c > e200_c and e44_c > e44_p2 and e200_c > e200_p2):
+            # --- CONDITION: Trending (SMA 44 > 200 and both rising) ---
+            if not (s44_c > s200_c and s44_c > s44_p2 and s200_c > s200_p2):
                 continue
 
-            # --- CONDITION: Strong Candle ---
+            # --- CONDITION: Strong Green Candle ---
             if not (c > o and c > mid):
                 continue
 
             # --- CONDITION: Touch & Reclaim ---
-            # Using 1.001 (0.1% buffer) to catch touches that are mathematically off by a few paise
-            if not (l <= (e44_c * TOUCH_BUFFER) and c > e44_c):
+            # l <= s44_c * 1.003 ensures we catch near-touches
+            if not (l <= (s44_c * TOUCH_BUFFER) and c > s44_c):
                 continue
 
-            # --- CONDITION: Staleness Check ---
-            # Ensures if signal was 3 days ago, the SL wasn't hit in the meantime
+            # --- CONDITION: Staleness / Stop Loss Check ---
+            # This prevents "incorrect" historical signals that already failed
             risk = c - l
             sl_val = l * SL_BUFFER
             if i > 0:
+                # If any low since the signal bar has hit the SL, ignore it
                 if (low_s.iloc[cur+1:] < sl_val).any():
                     continue
 
-            # Signal Found
             return TradingSignal(
                 ticker=ticker.replace(".NS", ""),
                 entry=round(c, 2),
                 stop_loss=round(sl_val, 2),
                 target_1=round(c + risk, 2),
                 target_2=round(c + risk * RISK_MULT, 2),
-                ema_fast=round(e44_c, 2),
-                ema_slow=round(e200_c, 2),
+                sma_fast=round(s44_c, 2),
+                sma_slow=round(s200_c, 2),
                 bars_ago=i
             ), AuditRecord(ticker, "SIGNAL", reason=f"i={i}", latency_ms=get_ms())
 
@@ -371,6 +369,8 @@ def _compute_signal(ticker: str) -> Tuple[Optional[TradingSignal], AuditRecord]:
 
     except Exception as e:
         return None, AuditRecord(ticker, "ERROR", reason=str(e), latency_ms=get_ms())
+
+
 
 # ── Universe ──────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=3600)
