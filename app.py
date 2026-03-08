@@ -1,5 +1,4 @@
 
-from __future__ import annotations
 
 """
 arth_sutra_engine.py
@@ -31,7 +30,7 @@ This version uses:
 
 All other conditions unchanged from Pine Script.
 """
-'''
+ 
 from __future__ import annotations
 
 import logging
@@ -237,131 +236,10 @@ def _load_universe() -> list[str]:
     except Exception as exc:
         logger.warning("NSE fetch failed (%s). Using fallback.", exc)
         return list(FALLBACK)
-"""
-'''
+
+ 
 
 
-import logging
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Final, List, Tuple, Optional
-import pandas as pd
-import streamlit as st
-import yfinance as yf
-
-# ── Constants ──────────────────────────────────────────────────────────────
-SMA_FAST:     Final[int]   = 44
-SMA_SLOW:     Final[int]   = 200
-N_LOOKBACK:    Final[int]   = 5
-TOUCH_BUFFER:  Final[float] = 1.005  # Increased to 0.5% for better capture
-SL_BUFFER:     Final[float] = 0.998
-RISK_MULT:     Final[float] = 2.0
-MIN_BARS:      Final[int]   = 250   # Ensure a full year of trading days
-CONCURRENCY:   Final[int]   = 30
-COLS:          Final[int]   = 4
-
-@dataclass(frozen=True, slots=True)
-class TradingSignal:
-    ticker: str; entry: float; stop_loss: float; target_1: float; target_2: float
-    sma_fast: float; sma_slow: float; bars_ago: int; scanned_at: datetime = field(default_factory=datetime.utcnow)
-
-@dataclass(slots=True)
-class AuditRecord:
-    ticker: str; outcome: str; reason: str = ""; latency_ms: float = 0.0
-
-# ── Signal Computation ────────────────────────────────────────────────────────
-def _compute_signal(ticker: str) -> Tuple[Optional[TradingSignal], AuditRecord]:
-    t0 = time.perf_counter()
-    get_ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
-    try:
-        # 1. Fetch data
-        raw = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
-        if raw is None or len(raw) < MIN_BARS:
-            return None, AuditRecord(ticker, "FAIL", "Short History", get_ms())
-
-        # 2. Indicators - Remove NaNs to prevent loop failure
-        s44 = raw["Close"].rolling(SMA_FAST).mean()
-        s200 = raw["Close"].rolling(SMA_SLOW).mean()
-        
-        # 3. Use .iloc to get clean values
-        for i in range(N_LOOKBACK):
-            idx = -(i + 1)
-            p2  = -(i + 3)
-
-            # Basic Price
-            c, o, h, l = raw["Close"].iloc[idx], raw["Open"].iloc[idx], raw["High"].iloc[idx], raw["Low"].iloc[idx]
-            s44_c, s200_c = s44.iloc[idx], s200.iloc[idx]
-            s200_p2 = s200.iloc[p2]
-
-            # REJECTION REASONS (Order of importance)
-            if not (s44_c > s200_c): 
-                continue # Death Cross
-            if not (s200_c > s200_p2): 
-                continue # Major Trend Down
-            if not (c > s44_c): 
-                continue # Closed below SMA
-            if not (l <= s44_c * TOUCH_BUFFER): 
-                continue # Didn't touch SMA
-            if not (c > o): 
-                continue # Red Candle
-
-            # If all passed
-            risk = c - l
-            return TradingSignal(
-                ticker=ticker.replace(".NS", ""), entry=round(c, 2),
-                stop_loss=round(l * SL_BUFFER, 2), target_1=round(c + risk, 2),
-                target_2=round(c + risk * 2, 2), sma_fast=round(s44_c, 2),
-                sma_slow=round(s200_c, 2), bars_ago=i
-            ), AuditRecord(ticker, "SUCCESS", f"Found i={i}", get_ms())
-
-        return None, AuditRecord(ticker, "FILTERED", "No match in lookback", get_ms())
-    except Exception as e:
-        return None, AuditRecord(ticker, "ERROR", str(e), get_ms())
-
-# ── Universe & Dashboard ──────────────────────────────────────────────────────
-@st.cache_data(ttl=3600)
-def _load_universe():
-    try:
-        url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
-        return [f"{s}.NS" for s in pd.read_csv(url)["Symbol"].tolist()]
-    except: return ["RELIANCE.NS", "TCS.NS", "TATAMOTORS.NS"]
-
-def render_dashboard():
-    st.set_page_config(layout="wide")
-    st.title("ArthSutra: SMA 44 Scanner")
-
-    if st.button("Start Global Scan"):
-        universe = _load_universe()
-        results, audits = [], []
-        progress = st.progress(0)
-        
-        with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
-            futures = {pool.submit(_compute_signal, t): t for t in universe}
-            for i, f in enumerate(as_completed(futures)):
-                sig, aud = f.result()
-                audits.append(aud)
-                if sig: results.append(sig)
-                progress.progress((i + 1) / len(universe))
-
-        # Display Results
-        if results:
-            st.subheader(f"✅ Found {len(results)} Signals")
-            cols = st.columns(COLS)
-            for idx, s in enumerate(results):
-                with cols[idx % COLS]:
-                    st.success(f"**{s.ticker}**")
-                    st.write(f"Entry: ₹{s.entry} | SL: {s.stop_loss}")
-        else:
-            st.warning("No matches found in Nifty 500.")
-            
-        # THE FIX: Debugging Table
-        with st.expander("View Scan Audit (Why stocks failed)"):
-            st.table(pd.DataFrame([{"Ticker": a.ticker, "Outcome": a.outcome, "Reason": a.reason} for a in audits[:20]]))
-
-if __name__ == "__main__":
-    render_dashboard()
 # =============================================================================
 # PRESENTATION — Midnight Dark · JetBrains Mono · 4-col streaming bento
 # =============================================================================
