@@ -223,63 +223,91 @@ class AuditRecord:
 
 
 def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
+    """
+    STRICT STRATEGY: 
+    1. SMA 44 must be rising (s44_cur > s44_prev)
+    2. SMA 200 must be rising (s200_cur > s200_prev)
+    3. Final candle must be GREEN (Close > Open)
+    4. Strategy: Low touches/pierces SMA 44, Close reclaims above SMA 44
+    """
     t0 = time.perf_counter()
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
-        # 1. DOWNLOAD DATA (Switched auto_adjust to False for better chart matching)
+        # Download with auto_adjust=False to match raw candle colors on charts
         raw: pd.DataFrame = yf.download(
-            ticker, period=PERIOD, interval=INTERVAL,
-            progress=False, auto_adjust=False 
+            ticker,
+            period=PERIOD,
+            interval=INTERVAL,
+            progress=False,
+            auto_adjust=False,
         )
 
         if len(raw) < MIN_BARS:
-            return None, AuditRecord(ticker=ticker, outcome="INSUFFICIENT_DATA", latency_ms=ms())
+            return None, AuditRecord(
+                ticker=ticker, outcome="INSUFFICIENT_DATA",
+                reason=f"{len(raw)} bars < {MIN_BARS}", latency_ms=ms(),
+            )
 
-        # Use 'Close' for calculations to match standard NSE charts
+        # Using 'Close' for standard SMA calculation
         close_s = raw["Close"]
-        
-        # 2. INDICATORS
-        s44  = close_s.rolling(window=44).mean()
-        s200 = close_s.rolling(window=200).mean()
+        open_s  = raw["Open"]
+        high_s  = raw["High"]
+        low_s   = raw["Low"]
+
+        s44  = close_s.rolling(window=SMA_FAST).mean()
+        s200 = close_s.rolling(window=SMA_SLOW).mean()
 
         for i in range(N_LOOKBACK):
-            cur = -(i + 1)
-            # Compare current SMA to an average of the last 3 days to confirm a REAL trend
-            s44_cur = float(s44.iloc[cur])
-            s44_prev_avg = float(s44.iloc[cur-3 : cur].mean()) # Average of 3 days ago
-            
+            # cur = bar being checked, prev = day before that
+            cur   = -(i + 1)   
+            prev  = -(i + 2) 
+
+            # Current values
+            s44_cur  = float(s44.iloc[cur])
+            s44_p1   = float(s44.iloc[prev])
             s200_cur = float(s200.iloc[cur])
-            
+            s200_p1  = float(s200.iloc[prev])
+
             c = float(close_s.iloc[cur])
-            o = float(raw["Open"].iloc[cur])
-            h = float(raw["High"].iloc[cur])
-            l = float(raw["Low"].iloc[cur])
-            p_c = float(close_s.iloc[cur - 1])
+            o = float(open_s.iloc[cur])
+            l = float(low_s.iloc[cur])
+            h = float(high_s.iloc[cur])
             mid = (h + l) / 2.0
 
-            # ── IMPROVED TREND CHECK ──
-            # 1. 44 must be ABOVE 200 (Long term bullish)
-            # 2. 44 must be higher than its recent average (Actually sloping UP)
-            is_trending = s44_cur > s200_cur and s44_cur > s44_prev_avg
+            # ── THE THREE STRICT CONDITIONS (AND LOGIC) ──────────────────
             
-            if not is_trending:
+            # Condition 1: 44 SMA must be going UP
+            is_44_up = s44_cur > s44_p1
+            
+            # Condition 2: 200 SMA must be going UP
+            is_200_up = s200_cur > s200_p1
+            
+            # Condition 3: Candle must be GREEN
+            is_green = c > o
+
+            # STOP HERE if any of the three are not met
+            if not (is_44_up and is_200_up and is_green):
                 continue
 
-            # ── STRENGTH CHECK ──
-            # Green candle, positive day, and strong close
-            if not (c > o and c > p_c and c > mid):
+            # ── STRATEGY SPECIFIC FILTERS ──────────────────────────────────
+            
+            # Condition 4: Low touches/pierces the 44 SMA
+            # (Using TOUCH_BUFFER 1.003 for float precision)
+            is_touching = l <= (s44_cur * TOUCH_BUFFER)
+            
+            # Condition 5: Close reclaims above the 44 SMA & midpoint
+            is_strong_reclaim = (c > s44_cur) and (c > mid)
+
+            if not (is_touching and is_strong_reclaim):
                 continue
 
-            # ── TOUCH & RECLAIM ──
-            if not (l <= s44_cur * TOUCH_BUFFER and c > s44_cur):
-                continue
-
-            # ── SIGNAL GENERATION ──
+            # ── ALL CONDITIONS MET ─────────────────────────────────────────
             risk = c - l
-            if risk <= 0: continue
+            if risk <= 0:
+                continue
 
-            return TradingSignal(
+            signal = TradingSignal(
                 ticker=ticker.replace(".NS", ""),
                 entry=round(c, 2),
                 stop_loss=round(l * SL_BUFFER, 2),
@@ -287,14 +315,24 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
                 target_2=round(c + risk * RISK_MULT, 2),
                 sma_fast=round(s44_cur, 2),
                 sma_slow=round(s200_cur, 2),
-                bars_ago=i
-            ), AuditRecord(ticker=ticker, outcome="SIGNAL", reason=f"Confirmed Trend at {i}", latency_ms=ms())
+                bars_ago=i,
+            )
+            return signal, AuditRecord(
+                ticker=ticker, outcome="SIGNAL",
+                reason=f"Found on bar {i}", latency_ms=ms(),
+            )
 
-        return None, AuditRecord(ticker=ticker, outcome="FILTERED", latency_ms=ms())
+        return None, AuditRecord(
+            ticker=ticker, outcome="FILTERED",
+            reason="Did not meet all 3 strict trend + color conditions",
+            latency_ms=ms(),
+        )
 
     except Exception as exc:
-        return None, AuditRecord(ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=ms())
-
+        logger.error("Error %s: %s", ticker, exc, exc_info=True)
+        return None, AuditRecord(
+            ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=ms(),
+        )
 # ── Universe ──────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=3_600, show_spinner=False)
 def _load_universe() -> list[str]:
