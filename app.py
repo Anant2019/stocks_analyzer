@@ -5,16 +5,19 @@ import numpy as np
 
 st.set_page_config(page_title="Arth Sutra", layout="wide")
 
-st.title("📈 Arth Sutra - AI Swing Trading Scanner")
+st.title("📈 Arth Sutra - Swing Trading Scanner")
 
+# NSE sample stocks (you can expand later)
 stocks = [
 "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
 "SBIN.NS","LT.NS","AXISBANK.NS","ITC.NS","KOTAKBANK.NS"
 ]
 
+# RSI calculation
 def rsi(series, period=14):
 
     delta = series.diff()
+
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
 
@@ -26,19 +29,20 @@ def rsi(series, period=14):
     return 100 - (100/(1+rs))
 
 
+# Backtesting function
 def backtest(df):
 
     wins = 0
     trades = 0
 
-    for i in range(50, len(df)-5):
+    for i in range(200, len(df)-5):
 
         close = float(df["Close"].iloc[i])
-        ema20 = float(df["EMA20"].iloc[i])
-        ema50 = float(df["EMA50"].iloc[i])
+        sma44 = float(df["SMA44"].iloc[i])
+        sma200 = float(df["SMA200"].iloc[i])
         r = float(df["RSI"].iloc[i])
 
-        if close > ema20 and ema20 > ema50 and 50 < r < 65:
+        if close > sma44 and sma44 > sma200 and 50 < r < 65:
 
             entry = close
             target = entry * 1.05
@@ -57,28 +61,29 @@ def backtest(df):
     return round((wins/trades)*100,2)
 
 
+# Scanner
 def scan():
 
     results = []
 
     for stock in stocks:
 
-        df = yf.download(stock, period="6mo", interval="1d", progress=False)
+        df = yf.download(stock, period="1y", interval="1d", progress=False)
 
-        if df.empty or len(df) < 100:
+        if df.empty or len(df) < 220:
             continue
 
-        df["EMA20"] = df["Close"].ewm(span=20).mean()
-        df["EMA50"] = df["Close"].ewm(span=50).mean()
+        # Indicators
+        df["SMA44"] = df["Close"].rolling(44).mean()
+        df["SMA200"] = df["Close"].rolling(200).mean()
         df["RSI"] = rsi(df["Close"])
-
         df["High20"] = df["High"].rolling(20).max()
 
         latest = df.iloc[-1]
 
         close = float(latest["Close"])
-        ema20 = float(latest["EMA20"])
-        ema50 = float(latest["EMA50"])
+        sma44 = float(latest["SMA44"])
+        sma200 = float(latest["SMA200"])
         r = float(latest["RSI"])
         high20 = float(latest["High20"])
         volume = float(latest["Volume"])
@@ -86,23 +91,28 @@ def scan():
 
         score = 0
 
-        if close > ema20:
+        # Trend conditions
+        if close > sma44:
             score += 20
 
-        if ema20 > ema50:
+        if sma44 > sma200:
             score += 20
 
+        # Momentum
         if 50 < r < 65:
             score += 20
 
+        # Volume spike
         if volume > avg_vol:
             score += 20
 
+        # Breakout
         breakout = close >= high20 * 0.98
 
         if breakout:
             score += 20
 
+        # Trade levels
         entry = round(close,2)
         stoploss = round(close*0.97,2)
         target = round(close*1.06,2)
@@ -127,11 +137,13 @@ def scan():
     return df_results
 
 
+# UI button
 if st.button("Run Arth Sutra Scanner"):
 
     data = scan()
 
     if data.empty:
+
         st.warning("No strong setups found today")
 
     else:
