@@ -15,7 +15,7 @@ def load_stocks():
         url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
         df = pd.read_csv(url)
         symbols = df["Symbol"].tolist()
-        symbols = [s+".NS" for s in symbols]
+        symbols = [s + ".NS" for s in symbols]
         return symbols
     except:
         return ["RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS"]
@@ -44,11 +44,11 @@ def backtest(df):
         sma44 = float(df["SMA44"].iloc[i])
         sma200 = float(df["SMA200"].iloc[i])
         r = float(df["RSI"].iloc[i])
-        if close > sma44 and sma44 > sma200 and 50<r<65:
+        if close > sma44 and sma44 > sma200 and 45<r<70:
             entry = close
             target = entry * 1.05
             future = df["Close"].iloc[i:i+5]
-            if future.max()>=target: wins+=1
+            if future.max() >= target: wins+=1
             trades+=1
     return round((wins/trades)*100,2) if trades>0 else 0
 
@@ -73,14 +73,15 @@ def scan_stock(stock, index_df):
             volume = float(latest["Volume"])
             avg_vol = float(df["Volume"].mean())
 
-            score=0
-            if close>sma44: score+=20
-            if sma44>sma200: score+=20
-            if 50<r<65: score+=20
-            if volume>avg_vol: score+=20
-            if close>=high20*0.98: score+=20
-
+            # Weighted AI Score
+            score = 0
+            score += 30 if sma44>sma200 else 0
+            score += 20 if 45<r<70 else 0
+            score += 20 if volume>avg_vol else 0
+            score += 20 if close >= high20*0.95 else 0
             rs = relative_strength(df, index_df)
+            score += 10 if rs>0 else 0
+
             winrate = backtest(df)
 
             return {
@@ -93,7 +94,7 @@ def scan_stock(stock, index_df):
                 "Target": round(close*1.06,2)
             }
         except:
-            time.sleep(0.5)  # small wait before retry
+            time.sleep(0.5)
             continue
     return None
 
@@ -109,36 +110,34 @@ def scan_all(stocks):
         futures = {executor.submit(scan_stock, stock, index_df): stock for stock in stocks}
         for future in as_completed(futures):
             res = future.result()
-            if res: results.append(res)
+            if res and res["AI Score"]>=40:  # only show meaningful signals
+                results.append(res)
             completed+=1
             progress.progress(completed/total)
     df_results = pd.DataFrame(results)
     if not df_results.empty:
-        df_results["AI Score"] = pd.to_numeric(df_results["AI Score"], errors='coerce')
-        df_results["Relative Strength %"] = pd.to_numeric(df_results["Relative Strength %"], errors='coerce')
-        df_results = df_results.dropna(subset=["AI Score","Relative Strength %"])
         df_results = df_results.sort_values(by=["AI Score","Relative Strength %"], ascending=False)
     return df_results
 
-# --- Card color based on score ---
+# --- Card color ---
 def get_card_color(score):
-    if score>=80: return "#d4edda" # green
-    elif score>=60: return "#fff3cd" # yellow
+    if score>=70: return "#d4edda"  # green
+    elif score>=50: return "#fff3cd" # yellow
     else: return "#f8d7da" # red
 
 # --- Run scanner ---
 if st.button("Run Arth Sutra PRO 500"):
     stocks = load_stocks()
     with st.spinner("Scanning NSE 500 stocks, please wait..."):
-        data = scan_all(stocks[:200])  # scan first 200 for speed; remove slice for full 500
+        data = scan_all(stocks[:200])  # safe batch; increase for full scan
     if data.empty:
         st.warning("No strong setups found today")
     else:
         cols_per_row = 3
-        for i in range(0,len(data),cols_per_row):
+        for i in range(0, len(data), cols_per_row):
             cols = st.columns(cols_per_row)
-            for j,col in enumerate(cols):
-                if i+j<len(data):
+            for j, col in enumerate(cols):
+                if i+j < len(data):
                     row = data.iloc[i+j]
                     color = get_card_color(row["AI Score"])
                     col.markdown(f"""
