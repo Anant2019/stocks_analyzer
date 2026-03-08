@@ -35,87 +35,89 @@ INTERVAL:      Final[str]   = "1d"
 COLS:          Final[int]   = 4
 
 def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
+    # Define start time and lambda BEFORE try block to avoid NameErrors
     t0 = time.perf_counter()
-    ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
+    def get_ms(): return round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
+        # 1. Clean ticker for yfinance
+        target_ticker = ticker if ticker.endswith(".NS") else f"{ticker}.NS"
+        
         raw: pd.DataFrame = yf.download(
-            ticker,
-            period="2y",
-            interval="1d",
+            target_ticker,
+            period=PERIOD,
+            interval=INTERVAL,
             progress=False,
             auto_adjust=True,
         )
 
-        if len(raw) < SMA_SLOW + 10:
-            return None, AuditRecord(ticker=ticker, outcome="SHORT_HISTORY")
+        # 2. Check if data is valid
+        if raw is None or raw.empty or len(raw) < MIN_BARS:
+            return None, AuditRecord(
+                ticker=ticker, 
+                outcome="INSUFFICIENT_DATA", 
+                reason=f"Got {len(raw) if raw is not None else 0} bars",
+                latency_ms=get_ms()
+            )
 
-        # ── 1. USE EMA INSTEAD OF SMA ───────────────────────────────────────
-        # EMA is the standard for the 44-strategy to avoid "laggy" signals.
+        # 3. Calculate EMA (Exponential is smoother and fixes "ghost" signals)
+        # Using EMA instead of SMA as it prioritizes recent price action
         ema44  = raw["Close"].ewm(span=SMA_FAST, adjust=False).mean()
         ema200 = raw["Close"].ewm(span=SMA_SLOW, adjust=False).mean()
 
-        close_s = raw["Close"]
-        high_s  = raw["High"]
-        low_s   = raw["Low"]
-        open_s  = raw["Open"]
+        # 4. Extract Series
+        c_s, o_s, h_s, l_s = raw["Close"], raw["Open"], raw["High"], raw["Low"]
 
+        # 5. Lookback Loop
         for i in range(N_LOOKBACK):
-            cur   = -(i + 1)
-            prev2 = -(i + 3)
+            cur, p2 = -(i + 1), -(i + 3)
+            
+            # Check for bounds
+            if abs(p2) > len(raw): continue
 
-            # Extracting values for clarity
-            c, o, h, l = close_s.iloc[cur], open_s.iloc[cur], high_s.iloc[cur], low_s.iloc[cur]
-            e44_cur, e200_cur = ema44.iloc[cur], ema200.iloc[cur]
-            e44_p2, e200_p2   = ema44.iloc[prev2], ema200.iloc[prev2]
+            c, o, h, l = float(c_s.iloc[cur]), float(o_s.iloc[cur]), float(h_s.iloc[cur]), float(l_s.iloc[cur])
+            e44_c, e200_c = float(ema44.iloc[cur]), float(ema200.iloc[cur])
+            e44_p2, e200_p2 = float(ema44.iloc[p2]), float(ema200.iloc[p2])
+            
             mid = (h + l) / 2.0
 
-            # ── 2. TREND VALIDATION ────────────────────────────────────────
-            # 44 > 200 AND both must be sloping upwards
-            is_trending = e44_cur > e200_cur and e44_cur > e44_p2 and e200_cur > e200_p2
-            if not is_trending: continue
+            # Condition 1: Trend (44 > 200 and both rising)
+            if not (e44_c > e200_c and e44_c > e44_p2 and e200_c > e200_p2):
+                continue
 
-            # ── 3. CANDLE STRENGTH ─────────────────────────────────────────
-            # Must be a green candle closing in the top 50% of its range
-            is_strong = c > o and c > mid
-            if not is_strong: continue
+            # Condition 2: Strength (Green candle & strong close)
+            if not (c > o and c > mid):
+                continue
 
-            # ── 4. THE TOUCH & RECLAIM (PRECISION FIXED) ───────────────────
-            # Low must be within 0.1% of EMA44 or below it.
-            # Close must be strictly above EMA44.
-            touched = l <= (e44_cur * TOUCH_BUFFER)
-            reclaimed = c > e44_cur
-            
-            if not (touched and reclaimed): continue
+            # Condition 3: Precise Touch & Reclaim
+            # We use a 0.1% buffer (1.001) to handle NSE price tick precision
+            if not (l <= (e44_c * TOUCH_BUFFER) and c > e44_c):
+                continue
 
-            # ── 5. STALENESS CHECK ─────────────────────────────────────────
-            # If the signal was 'i' days ago, ensure price hasn't already 
-            # breached the Stop Loss since then.
+            # Condition 4: Staleness (Ensure price didn't break SL after the signal)
             risk = c - l
             sl_price = l * SL_BUFFER
-            
-            # Check all candles from the signal day to today
             if i > 0:
-                historical_lows = low_s.iloc[cur+1:] 
-                if (historical_lows < sl_price).any():
-                    continue 
+                if (l_s.iloc[cur+1:] < sl_price).any(): continue
 
-            # ── ALL CLEAR ──────────────────────────────────────────────────
-            return TradingSignal(
+            # SUCCESS: Create Signal
+            signal = TradingSignal(
                 ticker=ticker.replace(".NS", ""),
                 entry=round(c, 2),
                 stop_loss=round(sl_price, 2),
                 target_1=round(c + risk, 2),
                 target_2=round(c + risk * RISK_MULT, 2),
-                sma_fast=round(e44_cur, 2),
-                sma_slow=round(e200_cur, 2),
+                sma_fast=round(e44_c, 2),
+                sma_slow=round(e200_c, 2),
                 bars_ago=i
-            ), AuditRecord(ticker=ticker, outcome="SIGNAL", reason=f"i={i}", latency_ms=ms())
+            )
+            return signal, AuditRecord(ticker=ticker, outcome="SIGNAL", reason=f"Bar {i}", latency_ms=get_ms())
 
-        return None, AuditRecord(ticker=ticker, outcome="FILTERED", latency_ms=ms())
+        return None, AuditRecord(ticker=ticker, outcome="FILTERED", latency_ms=get_ms())
 
-    except Exception as e:
-        return None, AuditRecord(ticker=ticker, outcome="ERROR", reason=str(e), latency_ms=ms())
+    except Exception as exc:
+        # Fallback return so the thread pool doesn't crash
+        return None, AuditRecord(ticker=ticker, outcome="ERROR", reason=str(exc), latency_ms=get_ms())
 
 
 
