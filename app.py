@@ -102,9 +102,9 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
             prev = -(i + 2)
 
             # --- DATA POINTS ---
-            c = float(close_s.iloc[curr])
-            o = float(open_s.iloc[curr])
-            l = float(low_s.iloc[curr])            
+            c = float(close_s.values[curr])
+            o = float(open_s.values[curr])
+            l = float(low_s.values[curr])         
 
             s44_val = float(s44.iloc[curr].item())
             s44_old = float(s44.iloc[prev].item())
