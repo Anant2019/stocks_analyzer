@@ -6,7 +6,7 @@ import math
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Final
 
 import pandas as pd
@@ -494,7 +494,7 @@ def _sidebar(scanned: int, found: int) -> None:
         ("R:R",       "1 : 2",                 "ok"),
         ("Scanned",   str(scanned),            ""),
         ("Signals",   str(found), "ok" if found > 0 else "rd"),
-        ("UTC",       datetime.utcnow().strftime("%H:%M:%S"), ""),
+        ("UTC", datetime.now(UTC).strftime("%H:%M:%S"), "")
     ]
     html = "".join(
         f'<div class="sb-row"><span class="sb-k">{k}</span>'
