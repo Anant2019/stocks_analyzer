@@ -130,17 +130,17 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
 
             # --- GATEKEEPER ---
             if not (is_44_up and is_200_up and is_green):
-                print(f"FAIL: {ticker} because is_44_up :{s44_curr} is_200_up :{is_200_up} is_green:{is_green}")
+                print(f"FAIL: {ticker} because is_44_up :{is_44_up} is_200_up :{is_200_up} is_green:{is_green}")
                 continue
             
-            print(f"PASS: {ticker} because is_44_up :{s44_curr} is_200_up :{is_200_up} is_green:{is_green}")
+            print(f"PASS: {ticker} because is_44_up :{is_44_up} is_200_up :{is_200_up} is_green:{is_green}")
 
             # ── STRATEGY: THE BOUNCE ──
             # If your manual scan finds more, it's because your 'Touch' is wider.
             # I am increasing the buffer to 0.5% (1.005) to catch 'near-touches'.
-            touched = l <= (s44_curr * 1.005) 
-            reclaimed = c > s44_curr
-            above_200 = c > s200_curr
+            touched = l <= (s44_val * 1.005) 
+            reclaimed = c > s44_val
+            above_200 = c > s200_val
 
             if touched and reclaimed and above_200:
                 risk = c - l
@@ -152,8 +152,8 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
                     stop_loss=round(l * 0.998, 2),
                     target_1=round(c + risk * 1.5, 2),
                     target_2=round(c + risk * 3.0, 2),
-                    sma_fast=round(s44_curr, 2),
-                    sma_slow=round(s200_curr, 2),
+                    sma_fast=round(s44_val, 2),
+                    sma_slow=round(s200_val, 2),
                     bars_ago=i
                 ), AuditRecord(ticker, "SIGNAL", "Triple Condition Success", ms())
 
