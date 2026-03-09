@@ -104,8 +104,8 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
             c, o, l = float(close_s.iloc[curr]), float(open_s.iloc[curr]), float(low_s.iloc[curr])
             
 
-            s44_val = float(s44.iloc[curr])
-            s44_old = float(s44.iloc[prev])
+            s44_val = float(s44.iloc[curr].item())
+            s44_old = float(s44.iloc[prev].item())
 
             # Check if data exists, then compare. 
             # If data is missing, we default to False.
@@ -115,8 +115,8 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
                 is_44_up = bool(s44_val >= (s44_old - 0.01))
 
             # 2. 200-SMA Going Up
-            s200_val = float(s200.iloc[curr])
-            s200_old = float(s200.iloc[prev])
+            s200_val = float(s200.iloc[curr].item())
+            s200_old = float(s200.iloc[prev].item())
 
             if math.isnan(s200_val) or math.isnan(s200_old):
                 is_200_up = False
