@@ -86,7 +86,7 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
         raw = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=False)
 
         if len(raw) < 210:
-            print(f"FAIL: {ticker} SMA210 not rising ({s44_curr} vs {s44_prev})")
+            print(f"FAIL: {ticker} SMA210 not rising")
             return None, AuditRecord(ticker, "SHORT_DATA", latency_ms=ms())
 
         close_s = raw["Close"]
@@ -120,8 +120,10 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
 
             # --- GATEKEEPER ---
             if not (is_44_up and is_200_up and is_green):
-                print(f"FAIL: {ticker} SMA44 not rising ({s44_curr} vs {s44_prev})")
+                print(f"FAIL: {ticker} because is_44_up :{s44_curr} is_200_up :{is_200_up} is_green:{is_green}")
                 continue
+            
+            print(f"PASS: {ticker} because is_44_up :{s44_curr} is_200_up :{is_200_up} is_green:{is_green}")
 
             # ── STRATEGY: THE BOUNCE ──
             # If your manual scan finds more, it's because your 'Touch' is wider.
@@ -145,7 +147,6 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
                     bars_ago=i
                 ), AuditRecord(ticker, "SIGNAL", "Triple Condition Success", ms())
 
-        print(f"DEBUG: {ticker} | Price: {c} | SMA44: {s44_curr:.2f} | SMA200: {s200_curr:.2f}")
 
         return None, AuditRecord(ticker, "FILTERED", "No matches", ms())
 
