@@ -174,6 +174,7 @@ def _load_universe() -> list[str]:
             usecols=["Symbol"],
         )["Symbol"].tolist()
         logger.info("Universe: %d symbols.", len(syms))
+        print(f"Got iniverse: {syms}")
         return [f"{s}.NS" for s in syms]
     except Exception as exc:
         logger.warning("NSE fetch failed (%s). Using fallback.", exc)
