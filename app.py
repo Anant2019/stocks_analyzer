@@ -160,8 +160,9 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
 
         return None, AuditRecord(ticker, "FILTERED", "No matches", ms())
 
-    except Exception as e:
-        return None, AuditRecord(ticker, "ERROR", str(e), ms())
+        except Exception as e:
+            print(f"CRITICAL ERROR for {ticker}: {e}") # This will tell you exactly what's wrong
+            return None, AuditRecord(ticker, "ERROR", str(e), ms())
 
 
 
