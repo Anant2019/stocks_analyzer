@@ -78,6 +78,7 @@ class AuditRecord:
 
 
 def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
+    print(f"TICKER: {ticker}")
     t0 = time.perf_counter()
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
@@ -526,6 +527,8 @@ def render_dashboard() -> None:
 
     universe = _load_universe()
     total    = len(universe)
+
+    print(f"Testing universe: {total}")
 
     progress_bar = st.progress(0, text="Initialising\u2026")
     status_slot  = st.empty()
