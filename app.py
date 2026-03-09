@@ -99,33 +99,33 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
         for i in range(N_LOOKBACK):
             curr = -(i + 1)
             prev = -(i + 2)
-
+            print(f"1")
             # --- DATA POINTS ---
             c, o, l = float(close_s.iloc[curr].item()), float(open_s.iloc[curr].item()), float(low_s.iloc[curr].item())
-            
+            print(f"2")
 
             s44_val = float(s44.iloc[curr].item())
             s44_old = float(s44.iloc[prev].item())
-
+            print(f"3")
             # Check if data exists, then compare. 
             # If data is missing, we default to False.
             if math.isnan(s44_val) or math.isnan(s44_old):
                 is_44_up = False
             else:
                 is_44_up = bool(s44_val >= (s44_old - 0.01))
-
+            print(f"4")
             # 2. 200-SMA Going Up
             s200_val = float(s200.iloc[curr].item())
             s200_old = float(s200.iloc[prev].item())
-
+            print(f"5")
             if math.isnan(s200_val) or math.isnan(s200_old):
                 is_200_up = False
             else:
                 is_200_up = bool(s200_val >= (s200_old - 0.01))
-
+            print(f"6")
             # 3. Candle MUST be Green
             is_green = c > o
-
+            
             # --- GATEKEEPER ---
             if not (is_44_up and is_200_up and is_green):
                 print(f"FAIL: {ticker} because is_44_up :{s44_curr} is_200_up :{is_200_up} is_green:{is_green}")
