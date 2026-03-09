@@ -103,17 +103,25 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
             # --- DATA POINTS ---
             c, o, l = float(close_s.iloc[curr]), float(open_s.iloc[curr]), float(low_s.iloc[curr])
             
-            s44_curr, s44_prev = float(s44.iloc[curr]), float(s44.iloc[prev])
-            s200_curr, s200_prev = float(s200.iloc[curr]), float(s200.iloc[prev])
 
-            # ── THE 3 STRICT CONDITIONS (WITH STABILITY TOLERANCE) ──
-            
-            # 1. 44-SMA Going Up: We allow it to be flat or rising (>=) 
-            # to account for micro-decimal fluctuations in yfinance data.
-            is_44_up = s44_curr >= (s44_prev - 0.01) 
+            s44_val = float(s44.iloc[curr])
+            s44_old = float(s44.iloc[prev])
+
+            # Check if data exists, then compare. 
+            # If data is missing, we default to False.
+            if math.isnan(s44_val) or math.isnan(s44_old):
+                is_44_up = False
+            else:
+                is_44_up = bool(s44_val >= (s44_old - 0.01))
 
             # 2. 200-SMA Going Up
-            is_200_up = s200_curr >= (s200_prev - 0.01)
+            s200_val = float(s200.iloc[curr])
+            s200_old = float(s200.iloc[prev])
+
+            if math.isnan(s200_val) or math.isnan(s200_old):
+                is_200_up = False
+            else:
+                is_200_up = bool(s200_val >= (s200_old - 0.01))
 
             # 3. Candle MUST be Green
             is_green = c > o
