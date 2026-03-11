@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -25,8 +24,7 @@ logger = logging.getLogger("arth_sutra.engine")
 SMA_FAST:     Final[int]   = 44
 SMA_SLOW:     Final[int]   = 200
 N_LOOKBACK:   Final[int]   = 5       # check last 5 bars (Pine fires on any historical bar)
-TOUCH_BUFFER: Final[float] = 1.003   # 0.3% rounding buffer — NOT a tolerance band
-                                      # low must be AT or BELOW the 44-SMA
+TOUCH_BUFFER: Final[float] = 1.005   # 0.5% buffer to catch near-touches
 SL_BUFFER:    Final[float] = 0.998
 RISK_MULT:    Final[float] = 2.0
 MIN_BARS:     Final[int]   = SMA_SLOW + N_LOOKBACK + 5
@@ -35,7 +33,7 @@ PERIOD:       Final[str]   = "2y"
 INTERVAL:     Final[str]   = "1d"
 COLS:         Final[int]   = 4
 
-FALLBACK: Final[list[str]] = [
+FALLBACK: Final[list[str]] =[
     "RELIANCE.NS", "TCS.NS", "TATAMOTORS.NS",
     "HINDALCO.NS", "COALINDIA.NS",
 ]
@@ -78,7 +76,6 @@ class AuditRecord:
 
 
 def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
-    print(f"TICKER: {ticker}")
     t0 = time.perf_counter()
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
@@ -86,13 +83,21 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
         # auto_adjust=False is vital for the 'Green' check (C > O)
         raw = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=False)
 
-        if len(raw) < 210:
-            print(f"FAIL: {ticker} SMA210 not rising")
+        # Handle YFinance's new MultiIndex format safely
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+
+        if raw.empty or len(raw) < MIN_BARS:
             return None, AuditRecord(ticker, "SHORT_DATA", latency_ms=ms())
+
+        # Ensure we have all necessary columns
+        if not all(col in raw.columns for col in["Close", "Open", "Low", "High"]):
+            return None, AuditRecord(ticker, "MISSING_COLS", latency_ms=ms())
 
         close_s = raw["Close"]
         open_s  = raw["Open"]
         low_s   = raw["Low"]
+        high_s  = raw["High"]
         
         s44  = close_s.rolling(window=44).mean()
         s200 = close_s.rolling(window=200).mean()
@@ -101,70 +106,62 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
             curr = -(i + 1)
             prev = -(i + 2)
 
-            # --- DATA POINTS ---
-            c = float(close_s.values[curr][0])
-            o = float(open_s.values[curr][0])
-            l = float(low_s.values[curr][0])       
+            # Safely extract scalar values using .iloc to avoid index errors
+            c = float(close_s.iloc[curr])
+            o = float(open_s.iloc[curr])
+            l = float(low_s.iloc[curr])       
+            h = float(high_s.iloc[curr])
 
-            s44_val = float(s44.iloc[curr].item())
-            s44_old = float(s44.iloc[prev].item())
+            s44_val = float(s44.iloc[curr])
+            s44_old = float(s44.iloc[prev])
+            
+            s200_val = float(s200.iloc[curr])
+            s200_old = float(s200.iloc[prev])
 
-            # Check if data exists, then compare. 
-            # If data is missing, we default to False.
-            if math.isnan(s44_val) or math.isnan(s44_old):
-                is_44_up = False
-            else:
-                is_44_up = bool(s44_val >= (s44_old - 0.01))
-
-            # 2. 200-SMA Going Up
-            s200_val = float(s200.iloc[curr].item())
-            s200_old = float(s200.iloc[prev].item())
-
-            if math.isnan(s200_val) or math.isnan(s200_old):
-                is_200_up = False
-            else:
-                is_200_up = bool(s200_val >= (s200_old - 0.01))
-
-            # 3. Candle MUST be Green
-            is_green = c > o
-
-            # --- GATEKEEPER ---
-            if not (is_44_up and is_200_up and is_green):
-                print(f"FAIL: {ticker} because is_44_up :{is_44_up} is_200_up :{is_200_up} is_green:{is_green}")
+            # Trend Check
+            if math.isnan(s44_val) or math.isnan(s44_old) or math.isnan(s200_val) or math.isnan(s200_old):
                 continue
             
-            print(f"PASS: {ticker} because is_44_up :{is_44_up} is_200_up :{is_200_up} is_green:{is_green}")
+            # 1. 44-SMA Going Up and 200-SMA Going Up
+            is_44_up  = s44_val >= (s44_old - 0.01)
+            is_200_up = s200_val >= (s200_old - 0.01)
+            is_trend_up = s44_val > s200_val  # 44MA MUST be above 200MA
+
+            # 2. Candle MUST be Green AND Strong (closes in upper half of range)
+            is_green  = c > o
+            is_strong = c > ((h + l) / 2.0) 
+
+            # --- GATEKEEPER ---
+            if not (is_44_up and is_200_up and is_trend_up and is_green and is_strong):
+                continue
 
             # ── STRATEGY: THE BOUNCE ──
-            # If your manual scan finds more, it's because your 'Touch' is wider.
-            # I am increasing the buffer to 0.5% (1.005) to catch 'near-touches'.
-            touched = l <= (s44_val * 1.005) 
+            # Touched: Low dips into or near the 44-SMA
+            touched = l <= (s44_val * TOUCH_BUFFER) 
+            # Reclaimed: Close completely reclaims and closes OVER the 44-SMA
             reclaimed = c > s44_val
-            above_200 = c > s200_val
 
-            if touched and reclaimed and above_200:
+            if touched and reclaimed:
                 risk = c - l
-                if risk <= 0: continue
+                if risk <= 0: 
+                    continue
 
                 return TradingSignal(
                     ticker=ticker.replace(".NS", ""),
                     entry=round(c, 2),
-                    stop_loss=round(l * 0.998, 2),
-                    target_1=round(c + risk * 1.5, 2),
-                    target_2=round(c + risk * 3.0, 2),
+                    stop_loss=round(l * SL_BUFFER, 2),
+                    target_1=round(c + risk * 1.0, 2), # Corrected Target 1 to exactly 1:1 Risk/Reward
+                    target_2=round(c + risk * 2.0, 2), # Corrected Target 2 to exactly 1:2 Risk/Reward
                     sma_fast=round(s44_val, 2),
                     sma_slow=round(s200_val, 2),
                     bars_ago=i
                 ), AuditRecord(ticker, "SIGNAL", "Triple Condition Success", ms())
 
-
         return None, AuditRecord(ticker, "FILTERED", "No matches", ms())
 
     except Exception as e:
-        print(f"CRITICAL ERROR for {ticker}: {e}") # This will tell you exactly what's wrong
+        logger.error(f"CRITICAL ERROR for {ticker}: {e}") 
         return None, AuditRecord(ticker, "ERROR", str(e), ms())
-
-
 
 
 # ── Universe ──────────────────────────────────────────────────────────────────
@@ -176,15 +173,12 @@ def _load_universe() -> list[str]:
             usecols=["Symbol"],
         )["Symbol"].tolist()
         logger.info("Universe: %d symbols.", len(syms))
-        print(f"Got iniverse: {syms}")
         return [f"{s}.NS" for s in syms]
     except Exception as exc:
         logger.warning("NSE fetch failed (%s). Using fallback.", exc)
         return list(FALLBACK)
 
  
-
-
 # =============================================================================
 # PRESENTATION — Midnight Dark · JetBrains Mono · 4-col streaming bento
 # =============================================================================
@@ -380,8 +374,7 @@ div[data-testid="stAlert"] {
 }
 
 /* Sidebar */
-[data-testid="stSidebar"] { background:#0D1016 !important; border-right:1px solid var(--border-card) !important; }
-[data-testid="stSidebar"] .block-container { padding:1.5rem 1rem !important; }
+[data-testid="stSidebar"] { background:#0D1016 !important; border-right:1px solid var(--border-card) !important; }[data-testid="stSidebar"] .block-container { padding:1.5rem 1rem !important; }
 .sb-hd { font-family:var(--mono); font-size:.54rem; font-weight:700; color:var(--ink-3);
          letter-spacing:3px; text-transform:uppercase; margin-bottom:12px;
          padding-bottom:8px; border-bottom:1px solid var(--border-card); }
@@ -487,7 +480,7 @@ def _card_html(sig: TradingSignal) -> str:
 
 
 def _sidebar(scanned: int, found: int) -> None:
-    rows = [
+    rows =[
         ("Universe",  "Nifty 500",             "hl"),
         ("Strategy",  "Swing Triple Bullish",   "ok"),
         ("Trend",     "44>200, both rising",    "ok"),
@@ -531,12 +524,10 @@ def render_dashboard() -> None:
     universe = _load_universe()
     total    = len(universe)
 
-    print(f"Testing universe: {total}")
-
     progress_bar = st.progress(0, text="Initialising\u2026")
     status_slot  = st.empty()
     section_slot = st.empty()
-    col_ph:  list = [st.empty() for _ in range(COLS)]
+    col_ph:  list =[st.empty() for _ in range(COLS)]
     col_buf: list[list[str]] = [[] for _ in range(COLS)]
     found = 0
     done  = 0
@@ -607,7 +598,7 @@ def render_dashboard() -> None:
 
 # ── Entrypoint ─────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="ArtSutra — Swing Triple Bullish",
+    page_title="ArthSutra — Swing Triple Bullish",
     page_icon="◈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -615,13 +606,3 @@ st.set_page_config(
 
 if __name__ == "__main__" or True:
     render_dashboard()
-
-
-
-
-
-
-
-
-
-
