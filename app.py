@@ -104,8 +104,8 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
             return None, AuditRecord(ticker, "SHORT_DATA", latency_ms=ms())
 
         # EXACTLY ONLY EVALUATE THE VERY LAST DAY (-1) TO PREVENT FALSE POSITIVES
-        curr = -1
-        prev = -2
+        curr = -2
+        prev = -3
 
         c = scalar(close_s.iloc[curr])
         o = scalar(open_s.iloc[curr])
@@ -119,6 +119,14 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
 
         # Get exact date of the evaluated candle
         candle_date = raw.index[curr].strftime("%d %b %Y")
+
+        print("Ticker: ",ticker)
+        print("Candle date: ",candle_date)
+        print("Close: ", c)
+        print("Open: ", o)
+        print("Low: ", l)
+        print("SMA44: ", s44_val)
+        print("SMA200: ", s200_val)
 
         if math.isnan(s44_val) or math.isnan(s44_old) or math.isnan(s200_val):
             return None, AuditRecord(ticker, "FILTERED", "NaN in moving averages", ms())
