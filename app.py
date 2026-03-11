@@ -136,19 +136,14 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
             return None, AuditRecord(ticker, "FILTERED", "Candle body is not entirely over the 44-SMA", ms())
 
         # ── 4. BOUNCE PROXIMITY ──
-        # Wick must be near 44 SMA. Allowed to dip max 1.5% below, but no more than 5% above (prevents buying at tops).
-        is_near_support = (l <= s44_val * 1.05) and (l >= s44_val * 0.985)
+        # (l <= s44_val * 1.05) and (l >= s44_val * 0.985)
+        is_near_support = abs(l - s44_val) / s44_val <= 0.05 
         if not is_near_support:
             return None, AuditRecord(ticker, "FILTERED", "Price is flying too high or broke down support", ms())
 
         # If it passed EVERY strict test, calculate secure targets
         stop_loss = round(min(l, s44_val) * 0.985, 2) # Place SL slightly below the wick or the moving average
         risk = c - stop_loss
-
-        sig, audit = future.result()
-
-        if audit.outcome != "SIGNAL":
-            print(audit.ticker, audit.reason)
         
         if risk <= 0: 
             return None, AuditRecord(ticker, "FILTERED", "Invalid Risk Calculation", ms())
