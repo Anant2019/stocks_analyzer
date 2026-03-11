@@ -24,7 +24,7 @@ logger = logging.getLogger("arth_sutra.engine")
 SMA_FAST:     Final[int]   = 44
 SMA_SLOW:     Final[int]   = 200
 MIN_BARS:     Final[int]   = 210
-CONCURRENCY:  Final[int]   = 25
+CONCURRENCY:  Final[int]   = 12
 PERIOD:       Final[str]   = "2y"
 INTERVAL:     Final[str]   = "1d"
 COLS:         Final[int]   = 4
@@ -92,9 +92,16 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
         close_s = raw["Close"]
         open_s  = raw["Open"]
         low_s   = raw["Low"]
+
+        # ── FAST TREND PREFILTER (skip weak stocks early) ──
+        if close_s.iloc[-1] < close_s.iloc[-50]:
+            return None, AuditRecord(ticker, "FILTERED", "Weak trend", ms())
         
         s44  = close_s.rolling(window=SMA_FAST).mean()
         s200 = close_s.rolling(window=SMA_SLOW).mean()
+
+        if pd.isna(s200.iloc[-1]):
+            return None, AuditRecord(ticker, "SHORT_DATA", latency_ms=ms())
 
         # EXACTLY ONLY EVALUATE THE VERY LAST DAY (-1) TO PREVENT FALSE POSITIVES
         curr = -1
@@ -118,28 +125,45 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
 
         # ── 1. TREND CONDITIONS ──
         is_trend_up = s44_val > s200_val
-        is_44_up    = s44_val > s44_old
-        is_200_up   = s200_val > s200_old
+        is_44_up = s44_val > s44_old
+        is_200_up = s200_val >= s200_old
 
+        # if not (is_trend_up and is_44_up and is_200_up):
+        #     return None, AuditRecord(ticker, "FILTERED", "MAs are not strictly rising or 44 < 200", ms())
         if not (is_trend_up and is_44_up and is_200_up):
-            return None, AuditRecord(ticker, "FILTERED", "MAs are not strictly rising or 44 < 200", ms())
+            return None, AuditRecord(ticker, "FILTERED", "Trend not valid", ms())
 
         # ── 2. CANDLE CONDITION ──
-        is_green = c > o
-        if not is_green:
-            return None, AuditRecord(ticker, "FILTERED", "Not a Green Candle", ms())
+        # is_green = c > o
+        # if not is_green:
+        #     return None, AuditRecord(ticker, "FILTERED", "Not a Green Candle", ms())
+        if c <= o:
+            return None, AuditRecord(ticker, "FILTERED", "Not green", ms())
         
         # ── 3. PRICE vs SMA POSITION ("over it") ──
         # Both Open & Close must be fully above 44 MA so it is truly "over it"
-        is_body_above = (c > s44_val) and (o > s44_val)
-        if not is_body_above:
-            return None, AuditRecord(ticker, "FILTERED", "Candle body is not entirely over the 44-SMA", ms())
+        # is_body_above = (c > s44_val) and (o > s44_val)
+
+        # is_body_above = c > s44_val
+
+        # if not is_body_above:
+        #     return None, AuditRecord(ticker, "FILTERED", "Candle body is not entirely over the 44-SMA", ms())
+
+        # ── 3. CLOSE ABOVE SMA ──
+        if c <= s44_val:
+            return None, AuditRecord(ticker, "FILTERED", "Close below 44 SMA", ms())
 
         # ── 4. BOUNCE PROXIMITY ──
         # (l <= s44_val * 1.05) and (l >= s44_val * 0.985)
-        is_near_support = abs(l - s44_val) / s44_val <= 0.05 
-        if not is_near_support:
-            return None, AuditRecord(ticker, "FILTERED", "Price is flying too high or broke down support", ms())
+        # is_near_support = abs(l - s44_val) / s44_val <= 0.05 
+
+        distance = abs(l - s44_val) / s44_val
+       
+        if distance > 0.05:
+            return None, AuditRecord(ticker, "FILTERED", "Too far from SMA", ms())
+
+        # if not is_near_support:
+        #     return None, AuditRecord(ticker, "FILTERED", "Price is flying too high or broke down support", ms())
 
         # If it passed EVERY strict test, calculate secure targets
         stop_loss = round(min(l, s44_val) * 0.985, 2) # Place SL slightly below the wick or the moving average
