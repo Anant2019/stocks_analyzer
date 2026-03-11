@@ -75,7 +75,7 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
-        raw = yf.download(ticker, period=PERIOD, interval=INTERVAL, progress=False, auto_adjust=True)
+        raw = yf.download(ticker, period=PERIOD, interval=INTERVAL, progress=False, auto_adjust=False)
 
         if isinstance(raw.columns, pd.MultiIndex):
             raw.columns = raw.columns.get_level_values(0)
