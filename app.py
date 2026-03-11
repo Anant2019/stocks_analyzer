@@ -144,6 +144,11 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
         # If it passed EVERY strict test, calculate secure targets
         stop_loss = round(min(l, s44_val) * 0.985, 2) # Place SL slightly below the wick or the moving average
         risk = c - stop_loss
+
+        sig, audit = future.result()
+
+        if audit.outcome != "SIGNAL":
+            print(audit.ticker, audit.reason)
         
         if risk <= 0: 
             return None, AuditRecord(ticker, "FILTERED", "Invalid Risk Calculation", ms())
@@ -158,6 +163,7 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
             sma_fast=round(s44_val, 2),
             sma_slow=round(s200_val, 2)
         ), AuditRecord(ticker, "SIGNAL", "Triple Condition Success", ms())
+
 
     except Exception as e:
         logger.error(f"CRITICAL ERROR for {ticker}: {e}") 
