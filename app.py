@@ -23,10 +23,6 @@ logger = logging.getLogger("arth_sutra.engine")
 # ── Strategy constants — exact Pine Script values ─────────────────────────────
 SMA_FAST:     Final[int]   = 44
 SMA_SLOW:     Final[int]   = 200
-N_LOOKBACK:   Final[int]   = 2       # ONLY scan Today (0) and Yesterday (1)
-TOUCH_BUFFER: Final[float] = 1.015   # 1.5% buffer above 44-SMA to catch "bounces"
-SL_BUFFER:    Final[float] = 0.998   # Stop-loss slightly below the low
-RISK_MULT:    Final[float] = 2.0
 MIN_BARS:     Final[int]   = 210
 CONCURRENCY:  Final[int]   = 25
 PERIOD:       Final[str]   = "2y"
@@ -41,15 +37,15 @@ FALLBACK: Final[list[str]] =[
 # ── Value object ──────────────────────────────────────────────────────────────
 @dataclass(frozen=True, slots=True)
 class TradingSignal:
-    ticker:    str
-    entry:     float   
-    stop_loss: float   
-    target_1:  float   
-    target_2:  float   
-    sma_fast:  float
-    sma_slow:  float
-    bars_ago:  int     
-    scanned_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    ticker:      str
+    signal_date: str     # Stores the exact date of the scanned candle
+    entry:       float   
+    stop_loss:   float   
+    target_1:    float   
+    target_2:    float   
+    sma_fast:    float
+    sma_slow:    float
+    scanned_at:  datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def risk(self) -> float:
@@ -64,7 +60,6 @@ class TradingSignal:
         return round((self.sma_fast - self.sma_slow) / self.sma_slow * 100, 2) \
                if self.sma_slow else 0.0
 
-
 @dataclass(slots=True)
 class AuditRecord:
     ticker:     str
@@ -72,15 +67,13 @@ class AuditRecord:
     reason:     str   = ""
     latency_ms: float = 0.0
 
-
 def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
     t0 = time.perf_counter()
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
-        # Default auto_adjust=True correctly accounts for stock splits/dividends 
-        # protecting Moving Averages from artificial massive drops.
-        raw = yf.download(ticker, period=PERIOD, interval=INTERVAL, progress=False)
+        # auto_adjust=True guarantees MAs match TradingView exactly (adjusts for splits/dividends)
+        raw = yf.download(ticker, period=PERIOD, interval=INTERVAL, progress=False, auto_adjust=True)
 
         # Handle YFinance's MultiIndex format safely
         if isinstance(raw.columns, pd.MultiIndex):
@@ -101,79 +94,84 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
         s44  = close_s.rolling(window=SMA_FAST).mean()
         s200 = close_s.rolling(window=SMA_SLOW).mean()
 
-        for i in range(N_LOOKBACK):
-            curr = -(i + 1)
-            prev = -(i + 2)
+        # EXACTLY ONLY EVALUATE THE VERY LAST DAY (-1) TO PREVENT FALSE POSITIVES
+        curr = -1
+        prev = -2
 
-            c = float(close_s.iloc[curr])
-            o = float(open_s.iloc[curr])
-            l = float(low_s.iloc[curr])       
+        c = float(close_s.iloc[curr])
+        o = float(open_s.iloc[curr])
+        l = float(low_s.iloc[curr])       
 
-            s44_val = float(s44.iloc[curr])
-            s44_old = float(s44.iloc[prev])
-            
-            s200_val = float(s200.iloc[curr])
-            s200_old = float(s200.iloc[prev])
+        s44_val = float(s44.iloc[curr])
+        s44_old = float(s44.iloc[prev])
+        
+        s200_val = float(s200.iloc[curr])
+        s200_old = float(s200.iloc[prev])
 
-            if math.isnan(s44_val) or math.isnan(s44_old) or math.isnan(s200_val):
-                continue
+        # Get exact date of the evaluated candle
+        candle_date = raw.index[curr].strftime("%d %b %Y")
 
-            # ── 1. TREND CONDITIONS ──
-            # 44MA MUST be above 200MA. Both MUST be strictly rising.
-            is_trend_up = s44_val > s200_val
-            is_44_up    = s44_val > s44_old
-            is_200_up   = s200_val > s200_old
+        if math.isnan(s44_val) or math.isnan(s44_old) or math.isnan(s200_val):
+            return None, AuditRecord(ticker, "FILTERED", "NaN in moving averages", ms())
 
-            # ── 2. CANDLE CONDITIONS ──
-            is_green    = c > o
-            
-            # ── 3. PRICE vs SMA POSITION ──
-            # "Green candle over it": Closes strictly above 44 MA
-            is_above_44 = c > s44_val 
-            # "Bounce logic": Low must be near the 44 MA (within 1.5% above it)
-            is_near_44  = l <= (s44_val * TOUCH_BUFFER) 
+        # ── 1. TREND CONDITIONS ──
+        is_trend_up = s44_val > s200_val
+        is_44_up    = s44_val > s44_old
+        is_200_up   = s200_val > s200_old
 
-            # --- GATEKEEPER ---
-            if not (is_trend_up and is_44_up and is_200_up and is_green and is_above_44 and is_near_44):
-                continue
+        if not (is_trend_up and is_44_up and is_200_up):
+            return None, AuditRecord(ticker, "FILTERED", "MAs are not strictly rising or 44 < 200", ms())
 
-            # If all conditions met, calculate targets
-            stop_loss = l * SL_BUFFER
-            risk = c - stop_loss
-            
-            if risk <= 0: 
-                continue
+        # ── 2. CANDLE CONDITION ──
+        is_green = c > o
+        if not is_green:
+            return None, AuditRecord(ticker, "FILTERED", "Not a Green Candle", ms())
+        
+        # ── 3. PRICE vs SMA POSITION ("over it") ──
+        # Both Open & Close must be fully above 44 MA so it is truly "over it"
+        is_body_above = (c > s44_val) and (o > s44_val)
+        if not is_body_above:
+            return None, AuditRecord(ticker, "FILTERED", "Candle body is not entirely over the 44-SMA", ms())
 
-            return TradingSignal(
-                ticker=ticker.replace(".NS", ""),
-                entry=round(c, 2),
-                stop_loss=round(stop_loss, 2),
-                target_1=round(c + risk * 1.0, 2), # 1:1 RR Target
-                target_2=round(c + risk * 2.0, 2), # 1:2 RR Target
-                sma_fast=round(s44_val, 2),
-                sma_slow=round(s200_val, 2),
-                bars_ago=i
-            ), AuditRecord(ticker, "SIGNAL", "Triple Condition Success", ms())
+        # ── 4. BOUNCE PROXIMITY ──
+        # Wick must be near 44 SMA. Allowed to dip max 1.5% below, but no more than 5% above (prevents buying at tops).
+        is_near_support = (l <= s44_val * 1.05) and (l >= s44_val * 0.985)
+        if not is_near_support:
+            return None, AuditRecord(ticker, "FILTERED", "Price is flying too high or broke down support", ms())
 
-        return None, AuditRecord(ticker, "FILTERED", "No matches", ms())
+        # If it passed EVERY strict test, calculate secure targets
+        stop_loss = round(min(l, s44_val) * 0.985, 2) # Place SL slightly below the wick or the moving average
+        risk = c - stop_loss
+        
+        if risk <= 0: 
+            return None, AuditRecord(ticker, "FILTERED", "Invalid Risk Calculation", ms())
+
+        return TradingSignal(
+            ticker=ticker.replace(".NS", ""),
+            signal_date=candle_date,
+            entry=round(c, 2),
+            stop_loss=stop_loss,
+            target_1=round(c + risk * 1.0, 2), # 1:1 RR Target
+            target_2=round(c + risk * 2.0, 2), # 1:2 RR Target
+            sma_fast=round(s44_val, 2),
+            sma_slow=round(s200_val, 2)
+        ), AuditRecord(ticker, "SIGNAL", "Triple Condition Success", ms())
 
     except Exception as e:
         logger.error(f"CRITICAL ERROR for {ticker}: {e}") 
         return None, AuditRecord(ticker, "ERROR", str(e), ms())
 
-
 # ── Universe ──────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=3_600, show_spinner=False)
 def _load_universe() -> list[str]:
     try:
-        # Added User-Agent header to prevent NSE from blocking the request
         syms = pd.read_csv(
             "https://archives.nseindia.com/content/indices/ind_nifty500list.csv",
             usecols=["Symbol"],
             storage_options={'User-Agent': 'Mozilla/5.0'}
         )["Symbol"].tolist()
         logger.info("Universe: %d symbols.", len(syms))
-        return [f"{s}.NS" for s in syms]
+        return[f"{s}.NS" for s in syms]
     except Exception as exc:
         logger.warning("NSE fetch failed (%s). Using fallback.", exc)
         return list(FALLBACK)
@@ -181,7 +179,6 @@ def _load_universe() -> list[str]:
 # =============================================================================
 # PRESENTATION — Midnight Dark · JetBrains Mono · 4-col streaming bento
 # =============================================================================
-
 _CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
@@ -267,9 +264,7 @@ div[data-testid="stProgress"] > div { background:var(--border-card) !important; 
 .bc-ticker { font-family:var(--font); font-size:1.02rem; font-weight:800; color:var(--ink); letter-spacing:-.3px; line-height:1; }
 .bc-sub { font-family:var(--mono); font-size:.56rem; color:var(--ink-3); margin-top:3px; }
 
-.fresh-tag { display:inline-block; font-family:var(--mono); font-size:.49rem; font-weight:600; border-radius:4px; padding:2px 7px; margin-top:3px; }
-.fresh-tag.today  { color:var(--mint);  background:var(--mint-dim);  border:1px solid var(--mint-bd); }
-.fresh-tag.recent { color:var(--amber); background:var(--amber-dim); border:1px solid var(--amber-bd); }
+.fresh-tag { display:inline-block; font-family:var(--mono); font-size:.49rem; font-weight:600; border-radius:4px; padding:2px 7px; margin-top:3px; color:var(--mint); background:var(--mint-dim); border:1px solid var(--mint-bd); }
 
 /* TV link */
 .tv { display:inline-flex; align-items:center; gap:4px; font-family:var(--mono); font-size:.55rem; font-weight:600; color:var(--ink-2); background:rgba(255,255,255,.035); border:1px solid var(--border); border-radius:var(--r-sm); padding:4px 8px; text-decoration:none !important; white-space:nowrap; flex-shrink:0; transition:color .14s,border-color .14s,background .14s; }
@@ -309,9 +304,6 @@ div[data-testid="stProgress"] > div { background:var(--border-card) !important; 
 .rr-d { width:4px; height:4px; border-radius:50%; background:var(--mint); animation:blink 2s ease-in-out infinite; }
 .spread-tag { font-family:var(--mono); font-size:.50rem; color:var(--amber); background:var(--amber-dim); border:1px solid var(--amber-bd); border-radius:20px; padding:2px 7px; }
 
-/* Alert */
-div[data-testid="stAlert"] { background:rgba(240,165,0,.06) !important; border:1px solid rgba(240,165,0,.20) !important; border-radius:var(--r-md) !important; font-family:var(--font) !important; font-size:.79rem !important; color:var(--amber) !important; }
-
 /* Sidebar */
 [data-testid="stSidebar"] { background:#0D1016 !important; border-right:1px solid var(--border-card) !important; }
 [data-testid="stSidebar"] .block-container { padding:1.5rem 1rem !important; }
@@ -320,33 +312,24 @@ div[data-testid="stAlert"] { background:rgba(240,165,0,.06) !important; border:1
 .sb-k { font-family:var(--font); font-size:.67rem; color:var(--ink-2); }
 .sb-v { font-family:var(--mono); font-size:.67rem; font-weight:600; color:var(--ink); }
 .sb-v.ok { color:var(--mint); } .sb-v.hl { color:var(--amber); } .sb-v.rd { color:var(--rose); }
-
 h3 { display:none !important; }
-
-@media(max-width:768px) { .main .block-container { padding:1rem .75rem 3.5rem !important; } .bc-body { padding:10px 10px 8px; } }
-@media(max-width:520px) { .aw { font-size:1.4rem; } .lvl-grid { grid-template-columns:1fr; } .sma-row  { grid-template-columns:1fr; } .bc-hd { flex-direction:column; gap:6px; } .tv { align-self:flex-start; } }
 </style>
 """
 
 _TV_SVG = (
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-    'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
-    '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'
-    '<polyline points="15 3 21 3 21 9"/>'
-    '<line x1="10" y1="14" x2="21" y2="3"/>'
-    '</svg>'
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>'
 )
 
 _LEGEND = f"""
 <div class="legend">
-  <div class="legend-title">Swing Strategy Conditions</div>
-  <div class="lchip trend">&#9650; 44-SMA &gt; 200-SMA</div>
-  <div class="lchip trend">&#9650; 44-SMA rising strictly</div>
-  <div class="lchip trend">&#9650; 200-SMA rising strictly</div>
+  <div class="legend-title">Strict Swing Trade Conditions</div>
+  <div class="lchip trend">&#9650; Uptrend: 44-SMA &gt; 200-SMA</div>
+  <div class="lchip trend">&#9650; MAs Rising: Both strictly pointing up</div>
   <div class="lchip candle">&#9646; Green Candle (Close &gt; Open)</div>
-  <div class="lchip touch">&#9650; Close perfectly above 44-SMA</div>
-  <div class="lchip touch">&#9660; Wick tests 44-SMA (Low near/touching)</div>
-  <div class="lchip info">&#9675; Scans ONLY Last 2 Days</div>
+  <div class="lchip touch">&#9650; Over It: Body fully above 44-SMA</div>
+  <div class="lchip touch">&#9660; Proximity: Wick tests support (near 44-SMA)</div>
+  <div class="lchip info">&#9675; Evaluates ONLY the absolute latest candle</div>
 </div>
 """
 
@@ -362,19 +345,14 @@ def _card_html(sig: TradingSignal) -> str:
     spd    = f"{float(sig.sma_spread_pct):.2f}"
     tv_url = f"https://www.tradingview.com/chart/?symbol=NSE%3A{ticker}"
 
-    ba = int(sig.bars_ago)
-    fresh_cls  = "today" if ba == 0 else "recent"
-    fresh_text = "Today" if ba == 0 else "Yesterday"
-
     return (
         '<div class="bc"><div class="bc-stripe"></div><div class="bc-body">'
         '<div class="bc-hd"><div>'
         f'<div class="bc-ticker">{ticker}</div>'
         f'<div class="bc-sub">200-SMA &#8377;{ss}</div>'
-        f'<div class="fresh-tag {fresh_cls}">{fresh_text}</div>'
+        f'<div class="fresh-tag">Candle: {sig.signal_date}</div>'
         '</div>'
-        f'<a class="tv" href="{tv_url}" target="_blank" rel="noopener noreferrer">'
-        f'{_TV_SVG}&thinsp;Chart</a></div>'
+        f'<a class="tv" href="{tv_url}" target="_blank" rel="noopener noreferrer">{_TV_SVG}&thinsp;Chart</a></div>'
         '<div class="entry-lbl">Entry (Close)</div>'
         f'<div class="entry-val">&#8377;{entry}</div>'
         '<div class="lvl-grid">'
@@ -403,19 +381,15 @@ def _sidebar(scanned: int, found: int) -> None:
         ("Universe",  "Nifty 500",             "hl"),
         ("Strategy",  "Swing Triple Bullish",   "ok"),
         ("Trend",     "44>200, strictly rising","ok"),
-        ("Reclaim",   "Close > 44-SMA",         "ok"),
+        ("Reclaim",   "Body fully > 44-SMA",    "ok"),
         ("Candle",    "Green (C > O)",          "ok"),
-        ("Lookback",  "Today & Yesterday ONLY", "hl"),
+        ("Lookback",  "Single Latest Candle",   "hl"),
         ("R:R",       "1 : 2",                 "ok"),
         ("Scanned",   str(scanned),            ""),
         ("Signals",   str(found), "ok" if found > 0 else "rd"),
-        ("UTC", datetime.now(UTC).strftime("%H:%M:%S"), "")
+        ("Time",      datetime.now(UTC).strftime("%H:%M UTC"), "")
     ]
-    html = "".join(
-        f'<div class="sb-row"><span class="sb-k">{k}</span>'
-        f'<span class="sb-v {c}">{v}</span></div>'
-        for k, v, c in rows
-    )
+    html = "".join(f'<div class="sb-row"><span class="sb-k">{k}</span><span class="sb-v {c}">{v}</span></div>' for k, v, c in rows)
     st.sidebar.markdown(f'<div class="sb-hd">Scan Summary</div>{html}', unsafe_allow_html=True)
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -425,7 +399,7 @@ def render_dashboard() -> None:
     st.markdown('<div class="aw-sub"><span class="aw-tag">Swing Triple Bullish · 44/200 SMA · NSE 500</span><span class="live-badge"><span class="live-dot"></span>BUY SIGNAL</span></div>', unsafe_allow_html=True)
     st.markdown(_LEGEND, unsafe_allow_html=True)
 
-    if not st.button("Run Swing Scanner \u2192"):
+    if not st.button("Run Strict Swing Scanner \u2192"):
         return
 
     universe = _load_universe()
@@ -434,7 +408,7 @@ def render_dashboard() -> None:
     progress_bar = st.progress(0, text="Initialising\u2026")
     status_slot  = st.empty()
     section_slot = st.empty()
-    col_ph:  list = [st.empty() for _ in range(COLS)]
+    col_ph:  list =[st.empty() for _ in range(COLS)]
     col_buf: list[list[str]] = [[] for _ in range(COLS)]
     found = 0
     done  = 0
@@ -449,24 +423,16 @@ def render_dashboard() -> None:
         for future in as_completed(fmap):
             sig, audit = future.result()
             done += 1
-            progress_bar.progress(
-                min(math.ceil(done / total * 100), 100),
-                text=f"Scanning\u2026 {done} / {total}",
-            )
+            progress_bar.progress(min(math.ceil(done / total * 100), 100), text=f"Scanning\u2026 {done} / {total}")
+            
             if sig is None:
                 continue
 
             found += 1
             if found == 1:
-                section_slot.markdown(
-                    '<div class="sec-row"><div class="sec-rule"></div><span class="sec-lbl">BUY Signals</span><div class="sec-rule"></div></div>',
-                    unsafe_allow_html=True,
-                )
+                section_slot.markdown('<div class="sec-row"><div class="sec-rule"></div><span class="sec-lbl">BUY Signals</span><div class="sec-rule"></div></div>', unsafe_allow_html=True)
 
-            status_slot.markdown(
-                f'<div class="ss"><div class="ss-spin"></div>Scanning &mdash; <span class="ct">{found} signal{"s" if found!=1 else ""} found</span> &mdash; {done}/{total}</div>',
-                unsafe_allow_html=True,
-            )
+            status_slot.markdown(f'<div class="ss"><div class="ss-spin"></div>Scanning &mdash; <span class="ct">{found} signal{"s" if found!=1 else ""} found</span> &mdash; {done}/{total}</div>', unsafe_allow_html=True)
             col_buf[(found - 1) % COLS].append(_card_html(sig))
             _flush()
 
@@ -475,7 +441,7 @@ def render_dashboard() -> None:
     if found == 0:
         status_slot.empty()
         section_slot.empty()
-        st.warning(f"No setups found across {done} instruments. Best to run after market close.")
+        st.warning(f"No strict setups found across {done} instruments.")
     else:
         status_slot.markdown(f'<div class="ss"><span class="ct">{found} signal{"s" if found!=1 else ""} detected</span> &mdash; {done} instruments scanned</div>', unsafe_allow_html=True)
         section_slot.markdown(f'<div class="sec-row"><div class="sec-rule"></div><span class="sec-lbl">BUY Signals</span><span class="sec-badge">{found} Found</span><div class="sec-rule"></div></div>', unsafe_allow_html=True)
