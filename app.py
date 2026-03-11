@@ -67,19 +67,21 @@ class AuditRecord:
     reason:     str   = ""
     latency_ms: float = 0.0
 
+def scalar(v):
+    return float(v.iloc[0] if hasattr(v, "iloc") else v)
+
 def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
     t0 = time.perf_counter()
     ms = lambda: round((time.perf_counter() - t0) * 1_000, 2)
 
     try:
-        # auto_adjust=True guarantees MAs match TradingView exactly (adjusts for splits/dividends)
         raw = yf.download(ticker, period=PERIOD, interval=INTERVAL, progress=False, auto_adjust=True)
 
-        # Handle YFinance's MultiIndex format safely
         if isinstance(raw.columns, pd.MultiIndex):
             raw.columns = raw.columns.get_level_values(0)
 
-        raw = raw.dropna() # Clear any missing days
+        raw = raw.loc[:, ~raw.columns.duplicated()]
+        raw = raw.dropna()
 
         if raw.empty or len(raw) < MIN_BARS:
             return None, AuditRecord(ticker, "SHORT_DATA", latency_ms=ms())
@@ -98,15 +100,15 @@ def _compute_signal(ticker: str) -> tuple[TradingSignal | None, AuditRecord]:
         curr = -1
         prev = -2
 
-        c = float(close_s.iloc[curr])
-        o = float(open_s.iloc[curr])
-        l = float(low_s.iloc[curr])       
+        c = scalar(close_s.iloc[curr])
+        o = scalar(open_s.iloc[curr])
+        l = scalar(low_s.iloc[curr])      
 
-        s44_val = float(s44.iloc[curr])
-        s44_old = float(s44.iloc[prev])
-        
-        s200_val = float(s200.iloc[curr])
-        s200_old = float(s200.iloc[prev])
+        s44_val = scalar(s44.iloc[curr])
+        s44_old = scalar(s44.iloc[prev])
+
+        s200_val = scalar(s200.iloc[curr])
+        s200_old = scalar(s200.iloc[prev])
 
         # Get exact date of the evaluated candle
         candle_date = raw.index[curr].strftime("%d %b %Y")
