@@ -2,105 +2,109 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
+from datetime import datetime, timedelta
 
-# 1. Professional Theme Mapping
-st.set_page_config(page_title="Arth Sutra Ultra", layout="wide")
+# 1. UI Configuration
+st.set_page_config(page_title="Arth Sutra | Backtest Engine", layout="wide")
 
 st.markdown("""
     <style>
-    .main { background-color: #050505; color: #e0e0e0; }
-    .card { 
-        background: linear-gradient(145deg, #111, #0a0a0a); 
-        border: 1px solid #333; 
-        border-radius: 15px; 
-        padding: 24px; 
-        margin-bottom: 20px;
-        box-shadow: 5px 5px 15px rgba(0,0,0,0.5);
-    }
-    .buy { color: #00FF41; font-family: 'Courier New'; font-size: 1.2rem; }
-    .stat { color: #888; font-size: 0.85rem; }
+    .main { background-color: #050505; color: white; }
+    .card { background: #111; border: 1px solid #333; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .success { color: #00FF41; font-weight: bold; border-left: 4px solid #00FF41; padding-left: 10px; }
+    .fail { color: #ff4b4b; font-weight: bold; border-left: 4px solid #ff4b4b; padding-left: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏹 ARTH SUTRA | Ultra Scanner")
-st.caption("Advanced Multi-Factor Institutional Swing Analysis")
+# 2. Sidebar for Date Control
+st.sidebar.header("🛠️ Backtest Settings")
+# Default to 10 days ago to ensure we have "forward" data to check success
+default_date = datetime.now() - timedelta(days=15)
+selected_date = st.sidebar.date_input("Analysis Date", value=default_date)
+look_forward_days = st.sidebar.slider("Check success after (days)", 1, 15, 7)
 
-def analyze_stock(symbol):
+st.title("🏹 ARTH SUTRA | Historical Analyzer")
+st.caption(f"Analyzing market state as of: {selected_date}")
+
+# 3. Enhanced Analysis with Success Check
+def analyze_historical(symbol, target_date):
     try:
-        # Use Ticker object for more reliable data fetching
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period="1y", interval="1d")
+        # Download data up to the "look forward" period
+        end_fetch = target_date + timedelta(days=look_forward_days + 5)
+        df = yf.download(symbol, start=(target_date - timedelta(days=100)), end=end_fetch, progress=False, multi_level_index=False)
         
-        if df.empty or len(df) < 50:
+        if df.empty: return None
+
+        # Split data into "Past" (what the scanner saw) and "Future" (what happened after)
+        past_data = df[:target_date].copy()
+        future_data = df[target_date:].copy()
+
+        if len(past_data) < 50 or future_data.empty:
             return None
 
-        # --- Indicator Engine ---
-        df['EMA20'] = ta.ema(df['Close'], length=20)
-        df['EMA50'] = ta.ema(df['Close'], length=50)
-        df['RSI'] = ta.rsi(df['Close'], length=14)
-        df['ADX'] = ta.adx(df['High'], df['Low'], df['Close'])['ADX_14']
-        df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
-        df['Vol_Avg'] = ta.sma(df['Volume'], length=20)
+        # Indicators on past data
+        past_data['EMA20'] = ta.ema(past_data['Close'], length=20)
+        past_data['EMA50'] = ta.ema(past_data['Close'], length=50)
+        past_data['RSI'] = ta.rsi(past_data['Close'], length=14)
         
-        curr = df.iloc[-1]
+        curr = past_data.iloc[-1]
+        price_at_scan = float(curr['Close'])
         
-        # --- Scoring Logic (Max 100) ---
+        # Strategy Logic
         score = 0
-        if curr['Close'] > curr['EMA50']: score += 30 # Trend
-        if abs(curr['Close'] - curr['EMA20']) / curr['EMA20'] < 0.02: score += 30 # Pullback
-        if 45 < curr['RSI'] < 65: score += 20 # Momentum Sweet Spot
-        if curr['ADX'] > 20: score += 10 # Trend Strength
-        if curr['Volume'] > curr['Vol_Avg'] * 0.8: score += 10 # Volume Health
+        if price_at_scan > curr['EMA50']: score += 40
+        if price_at_scan <= curr['EMA20'] * 1.015: score += 35
+        if 45 < curr['RSI'] < 65: score += 25
 
-        # Exit Strategy (ATR Based)
-        # Target: 2.5x ATR | SL: 1.5x ATR
-        target = curr['Close'] + (curr['ATR'] * 2.5)
-        sl = curr['Close'] - (curr['ATR'] * 1.5)
+        # SUCCESS CHECK: Did price hit +5% before hitting -3% SL in the forward window?
+        target_price = price_at_scan * 1.05
+        sl_price = price_at_scan * 0.97
+        
+        max_future = future_data['High'].max()
+        min_future = future_data['Low'].min()
+        
+        hit_target = max_future >= target_price
+        hit_sl = min_future <= sl_price
+        
+        result_status = "PENDING"
+        if hit_target: result_status = "SUCCESS"
+        elif hit_sl: result_status = "STOP LOSS"
 
         return {
             "Symbol": symbol.replace(".NS", ""),
-            "Price": round(curr['Close'], 2),
+            "Price": round(price_at_scan, 2),
             "Score": score,
-            "RSI": round(curr['RSI'], 1),
-            "ADX": round(curr['ADX'], 1),
-            "Target": round(target, 2),
-            "SL": round(sl, 2)
+            "Status": result_status,
+            "Max_Move": round(((max_future - price_at_scan)/price_at_scan)*100, 2)
         }
     except:
         return None
 
-# Expanded Blue-Chip Watchlist (NSE)
-WATCHLIST = [
-    "RELIANCE.NS", "TCS.NS", "BHARTIARTL.NS", "HAL.NS", "BEL.NS", 
-    "INFY.NS", "ICICIBANK.NS", "HDFCBANK.NS", "TATASTEEL.NS", "ADANIENT.NS",
-    "SBIN.NS", "AXISBANK.NS", "LT.NS", "M&M.NS", "TITAN.NS", "SUNPHARMA.NS",
-    "POWERGRID.NS", "NTPC.NS", "BAJFINANCE.NS", "MARUTI.NS", "COALINDIA.NS"
-]
+WATCHLIST = ["RELIANCE.NS", "TCS.NS", "BHARTIARTL.NS", "HAL.NS", "BEL.NS", "INFY.NS", "ICICIBANK.NS", "SBIN.NS"]
 
-if st.button("⚡ EXECUTE DEEP SCAN"):
-    with st.spinner("Analyzing Market Structure..."):
-        results = [analyze_stock(s) for s in WATCHLIST]
-        # Allow setups with 70%+ score for more opportunities without sacrificing quality
-        valid_results = [r for r in results if r and r['Score'] >= 70]
+if st.button("🔍 Run Historical Trace"):
+    results = [analyze_historical(s, selected_date) for s in WATCHLIST]
+    valid = [r for r in results if r and r['Score'] >= 75]
 
-    if not valid_results:
-        st.error("MARKET STATUS: Overextended. No 'High-Value' pullbacks detected in the Top 20.")
-        st.info("Strategy Tip: Institutional money is currently waiting. Avoid FOMO entries.")
+    if not valid:
+        st.warning(f"No high-conviction setups were found on {selected_date}.")
     else:
-        valid_results = sorted(valid_results, key=lambda x: x['Score'], reverse=True)
+        # Calculate Win Rate
+        wins = len([r for r in valid if r['Status'] == "SUCCESS"])
+        win_rate = (wins / len(valid)) * 100
+        
+        st.subheader(f"📊 Backtest Results (Win Rate: {win_rate}%)")
+        
         cols = st.columns(3)
-        for i, stock in enumerate(valid_results):
+        for i, res in enumerate(valid):
             with cols[i % 3]:
+                status_class = "success" if res['Status'] == "SUCCESS" else "fail"
                 st.markdown(f"""
                 <div class="card">
-                    <h2 style="margin:0;">{stock['Symbol']}</h2>
-                    <p class="buy">CONVICTION: {stock['Score']}%</p>
-                    <hr style="border-color:#222">
-                    <p class="stat">Price: <span style="color:white">₹{stock['Price']}</span></p>
-                    <p class="stat">RSI: <span style="color:white">{stock['RSI']}</span> | ADX: <span style="color:white">{stock['ADX']}</span></p>
-                    <div style="background:#000; padding:10px; border-radius:8px; margin-top:10px;">
-                        <p style="color:#00FF41; margin:0;"><b>TGT: ₹{stock['Target']}</b></p>
-                        <p style="color:#FF4B4B; margin:0;"><b>SL:  ₹{stock['SL']}</b></p>
-                    </div>
+                    <h3>{res['Symbol']}</h3>
+                    <p class="buy">Scan Score: {res['Score']}%</p>
+                    <p>Price then: ₹{res['Price']}</p>
+                    <p class="{status_class}">Outcome: {res['Status']}</p>
+                    <p style="font-size:0.8rem">Max Peak: +{res['Max_Move']}%</p>
                 </div>
                 """, unsafe_allow_html=True)
