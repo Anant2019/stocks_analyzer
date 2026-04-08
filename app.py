@@ -2,61 +2,60 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
-from pygooglenews import GoogleNews # For Sentiment Source
+try:
+    from pygooglenews import GoogleNews
+    NEWS_AVAILABLE = True
+except ImportError:
+    NEWS_AVAILABLE = False
 
-# --- Caching for Stability ---
-@st.cache_data(ttl=3600)
-def get_price_data(ticker):
-    # Source A: yfinance for Technicals
-    return yf.download(ticker, period="2y", interval="1d")
+st.set_page_config(page_title="Arth Sutra: Hybrid Engine", layout="wide")
 
+# --- Source A: Technical & Fundamental (yfinance) ---
 @st.cache_data(ttl=3600)
-def get_fundamental_data(ticker):
-    # Source B: yfinance Info for Fundamentals
+def get_market_data(ticker):
     t = yf.Ticker(ticker)
-    return t.info
+    df = t.history(period="2y")
+    return t, df
 
-def get_sentiment_news(stock_name):
-    # Source C: Google News for Sentiments
+# --- Source B: Sentiment (Google News) ---
+def get_sentiment(stock_name):
+    if not NEWS_AVAILABLE:
+        return []
     gn = GoogleNews(lang='en', country='IN')
-    search = gn.search(f'{stock_name} share stock market')
+    search = gn.search(f'{stock_name} share price')
     return search['entries'][:5]
 
-# --- UI Setup ---
-st.title("🛡️ Arth Sutra: Multi-Source Wealth Engine")
+st.title("🛡️ Arth Sutra: Multi-Source Engine")
 
-selected_stock = st.sidebar.text_input("Enter NSE Ticker", "TATAMOTORS.NS")
+selected_stock = st.sidebar.text_input("Enter NSE Ticker", "RELIANCE.NS")
 
 if st.sidebar.button("Nikalye Master Kundali"):
-    try:
-        # Technical Logic
-        df = get_price_data(selected_stock)
-        info = get_fundamental_data(selected_stock)
+    t_obj, df = get_market_data(selected_stock)
+    
+    if not df.empty:
+        # 1. Technical Analysis
+        df['SMA44'] = ta.sma(df['Close'], length=44)
+        df['SMA200'] = ta.sma(df['Close'], length=200)
         
-        st.header(f"📊 Analysis: {info.get('longName', selected_stock)}")
-        
-        # --- Multi-Source Dashboard ---
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            st.subheader("📈 Technical Source (44/200 SMA)")
-            df['SMA44'] = ta.sma(df['Close'], length=44)
-            df['SMA200'] = ta.sma(df['Close'], length=200)
+            st.subheader("📈 Technical Chart")
             st.line_chart(df[['Close', 'SMA44', 'SMA200']].tail(200))
             
         with col2:
-            st.subheader("📑 Fundamental Source")
+            st.subheader("📑 Financial Health")
+            info = t_obj.info
             st.metric("PE Ratio", info.get('trailingPE', 'N/A'))
             st.metric("Debt/Equity", info.get('debtToEquity', 'N/A'))
-            st.metric("Profit Growth", f"{info.get('earningsGrowth', 0)*100:.1f}%")
-
+            
         st.divider()
-
-        # --- News/Sentiment Source ---
-        st.subheader("🗞️ Sentiment Source (Google News)")
-        news_list = get_sentiment_news(info.get('longName', selected_stock))
-        for n in news_list:
-            st.info(f"**{n.title}** \n[Read More]({n.link})")
-
-    except Exception as e:
-        st.error(f"Error connecting to sources: {e}")
+        
+        # 2. News/Sentiment Section
+        st.subheader("🗞️ News Sentiment (Multi-Source)")
+        if NEWS_AVAILABLE:
+            news = get_sentiment(info.get('longName', selected_stock))
+            for n in news:
+                st.info(f"**{n.title}** \n [Link]({n.link})")
+        else:
+            st.warning("News Module (pygooglenews) not installed. Running Technicals only.")
