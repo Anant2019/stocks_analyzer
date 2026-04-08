@@ -9,3 +9,4 @@ plotly
 nsepy
 nsetools
 requests
+requests-cache
