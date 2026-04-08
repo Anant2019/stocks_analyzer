@@ -21,6 +21,13 @@ st.markdown("""
     .conf-high { color: #3fb950; font-weight: bold; font-size: 22px; }
     .conf-mid { color: #d29922; font-weight: bold; font-size: 22px; }
     .conf-low { color: #f85149; font-weight: bold; font-size: 22px; }
+    .news-box {
+        background-color: #0d1117;
+        padding: 10px;
+        border-left: 4px solid #58a6ff;
+        margin-bottom: 10px;
+        border-radius: 4px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -43,14 +50,14 @@ def get_market_intelligence(ticker_list):
             
             if df.empty or len(df) < 200: continue
             
-            # Technical Indicators
+            # Technical Indicators (44/200 SMA Strategy)
             df['SMA44'] = ta.sma(df['Close'], length=44)
             df['SMA200'] = ta.sma(df['Close'], length=200)
             df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
             
             curr = df.iloc[-1]
             
-            # Confidence Scoring (Logic: Trend + Support + Volume)
+            # Professional Confidence Scoring
             score = 0
             if curr['Close'] > curr['SMA200']: score += 40
             if abs(curr['Close'] - curr['SMA44']) / curr['SMA44'] < 0.03: score += 40
@@ -68,17 +75,17 @@ def get_market_intelligence(ticker_list):
 
 # --- Sidebar Controls ---
 st.sidebar.title("🛡️ Engine Controls")
-sort_opt = st.sidebar.selectbox("Sort By", ["Confidence (High to Low)", "Alphabetical"])
+sort_opt = st.sidebar.selectbox("Sort Intelligence By", ["Confidence (High to Low)", "Alphabetical"])
 min_conf = st.sidebar.slider("Minimum Confidence Threshold", 0, 100, 50)
 
 # --- Main Dashboard ---
 st.title("🛡️ Arth Sutra Wealth Engine")
-st.caption("Strategic wealth creation through high-probability technical setups.")
+st.caption("Strategic wealth creation platform for long-term equity growth.")
 
 # Portfolio Tickers
 tickers = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "TATAMOTORS.NS", "SBIN.NS", "INFY.NS", "ITC.NS", "ZOMATO.NS", "ADANIENT.NS", "BHARTIARTL.NS"]
 
-with st.spinner("Aggregating Market Intelligence..."):
+with st.spinner("Aggregating Multi-Source Intelligence..."):
     intel_df = get_market_intelligence(tickers)
 
 if not intel_df.empty:
@@ -90,7 +97,7 @@ if not intel_df.empty:
         display_df = display_df.sort_values(by="Ticker")
 
     # Grid Architecture
-    st.subheader(f"Active Opportunities: {len(display_df)}")
+    st.subheader(f"Active Opportunities Identified: {len(display_df)}")
     rows = [display_df.iloc[i:i+3] for i in range(0, len(display_df), 3)]
     
     for row_df in rows:
@@ -109,7 +116,7 @@ if not intel_df.empty:
                     </div>
                 """, unsafe_allow_html=True)
                 
-                if st.button(f"View Strategic Report: {stock['Ticker']}", key=f"btn_{stock['Ticker']}"):
+                if st.button(f"View Deep Analysis: {stock['Ticker']}", key=f"btn_{stock['Ticker']}"):
                     st.session_state['selected_stock'] = stock['Ticker']
 
 # --- Persistent Strategic Analysis Report ---
@@ -117,11 +124,12 @@ if st.session_state['selected_stock']:
     st.divider()
     target = st.session_state['selected_stock']
     
-    with st.spinner(f"Generating Financial Blueprint for {target}..."):
+    with st.spinner(f"Compiling Financial Blueprint for {target}..."):
         t_obj = yf.Ticker(target)
         info = t_obj.info if t_obj.info else {}
         hist = t_obj.history(period="1y")
-        news = t_obj.news if t_obj.news else []
+        # Nayi News Fetching Logic
+        news_data = t_obj.news if t_obj.news else []
         
         st.subheader(f"📑 Strategic Financial Blueprint: {target}")
         
@@ -132,22 +140,31 @@ if st.session_state['selected_stock']:
             if not hist.empty:
                 st.line_chart(hist['Close'])
             
-            st.markdown("### Corporate Overview")
+            st.markdown("### Corporate Profile")
             st.write(info.get('longBusinessSummary', 'Business profile currently unavailable.')[:900] + "...")
             
         with col_right:
-            st.markdown("### Fundamental Metrics")
+            st.markdown("### Critical Financial Metrics")
             st.write(f"**Industry:** {info.get('industry', 'N/A')}")
             st.write(f"**Trailing P/E:** {info.get('trailingPE', 'N/A')}")
             st.write(f"**Debt to Equity:** {info.get('debtToEquity', 'N/A')}")
             st.write(f"**ROE:** {info.get('returnOnEquity', 'N/A')}")
             
             st.markdown("### Market Intelligence Feed")
-            if news:
-                for item in news[:4]:
-                    # Safe fetch for news title to avoid KeyError
-                    title = item.get('title', 'Headline unavailable')
-                    link = item.get('link', '#')
-                    st.info(f"📰 [{title}]({link})")
+            if news_data:
+                for item in news_data[:4]:
+                    # Robust Parsing for New Yahoo API Structure
+                    # Checking multiple possible keys (content, title, headline)
+                    content = item.get('content', {})
+                    title = content.get('title') or item.get('title') or item.get('headline') or "Market Update Available"
+                    link = content.get('canonicalUrl') or item.get('link') or item.get('url') or "#"
+                    publisher = content.get('provider', {}).get('displayName') or item.get('publisher', 'Financial Source')
+                    
+                    st.markdown(f"""
+                        <div class="news-box">
+                            <small>{publisher}</small><br>
+                            <a href="{link}" target="_blank" style="text-decoration:none; color:#58a6ff;"><b>{title}</b></a>
+                        </div>
+                    """, unsafe_allow_html=True)
             else:
                 st.write("No recent intelligence reports found.")
