@@ -2,71 +2,108 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
+import requests_cache
+from datetime import timedelta
 
-# --- UI Setup ---
-st.set_page_config(page_title="Arth Sutra: Stock Kundali", layout="wide")
-st.title("🔎 Arth Sutra: Stock Deep-Dive Terminal")
+# --- Architecture: Setup Caching to avoid Rate Limits ---
+session = requests_cache.CachedSession('arth_sutra_cache', expire_after=timedelta(hours=1))
 
-# Nifty 200 List (Sample)
-nifty200 = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "TATAMOTORS.NS", "SBIN.NS", "ITC.NS", "INFY.NS", "BHARTIARTL.NS"]
+st.set_page_config(page_title="Arth Sutra: Wealth Engine", layout="wide")
 
-# --- Sidebar: Stock Selection ---
-selected_stock = st.sidebar.selectbox("Kiski Kundali nikalni hai?", nifty200)
+# --- Styling ---
+st.markdown("""
+    <style>
+    .main { background-color: #0e1117; color: white; }
+    .stMetric { background-color: #1e2130; padding: 15px; border-radius: 10px; border: 1px solid #4e5d6e; }
+    </style>
+    """, unsafe_allow_html=True)
 
-@st.cache_data(ttl=600) # 10 mins cache taaki Yahoo block na kare
-def get_stock_kundali(ticker_symbol):
+# --- Logic: The Engine Core ---
+def get_stock_analysis(ticker_symbol):
     try:
-        t = yf.Ticker(ticker_symbol)
-        # Fetch data safely
-        hist = t.history(period="2y")
-        info = t.info
-        news = t.news
-        return t, hist, info, news
+        t = yf.Ticker(ticker_symbol, session=session)
+        # Fetch 2 years to ensure 200 SMA is accurate
+        df = t.history(period="2y")
+        if df.empty or len(df) < 200:
+            return None, None, None
+
+        # 1. Technical Indicators
+        df['SMA44'] = ta.sma(df['Close'], length=44)
+        df['SMA200'] = ta.sma(df['Close'], length=200)
+        df['RSI'] = ta.rsi(df['Close'], length=14)
+        avg_vol = df['Volume'].tail(20).mean()
+
+        curr = df.iloc[-1]
+        
+        # 2. Confidence Scoring (Bulletproof Logic)
+        score = 0
+        if curr['Close'] > curr['SMA200']: score += 40  # Trend Filter
+        if abs(curr['Close'] - curr['SMA44']) / curr['SMA44'] < 0.02: score += 30 # Entry Zone
+        if curr['Volume'] > (avg_vol * 1.5): score += 20 # Volume Confirmation
+        if 40 < curr['RSI'] < 60: score += 10 # Momentum Strength
+
+        # 3. Decision
+        if score >= 80: status = "🚀 HIGH BULLISH"
+        elif score >= 50: status = "⚖️ NEUTRAL / HOLD"
+        else: status = "❌ AVOID / BEARISH"
+
+        return df, t.info, status, score, t.news
     except Exception as e:
-        st.error(f"Data fetch error: {e}")
-        return None, None, None, None
+        return None, None, str(e), 0, None
 
-t_obj, df, info, news = get_stock_kundali(selected_stock)
+# --- UI: Main Dashboard ---
+st.title("🛡️ Arth Sutra: The Wealth Creation Engine")
+st.subheader("Disciplined Investing for Financial Freedom")
 
-if t_obj and not df.empty:
-    # --- 1. Top Bar: Quick Stats ---
-    st.header(f"📊 {info.get('longName', selected_stock)} ({selected_stock})")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Current Price", f"₹{round(df['Close'].iloc[-1], 2)}")
-    c2.metric("PE Ratio", info.get('trailingPE', 'N/A'))
-    c3.metric("52W High", f"₹{info.get('fiftyTwoWeekHigh', 'N/A')}")
-    c4.metric("Market Cap", f"₹{round(info.get('marketCap', 0)/10**11, 2)} L Cr")
+# Common stock list for Nifty 200 (Sample)
+nifty200 = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "TATAMOTORS.NS", "SBIN.NS", "ITC.NS", "INFY.NS", "ADANIENT.NS", "ZOMATO.NS"]
 
-    # --- 2. Technical Kundali ---
-    st.subheader("📈 Technical Analysis (44/200 SMA)")
-    df['SMA44'] = ta.sma(df['Close'], length=44)
-    df['SMA200'] = ta.sma(df['Close'], length=200)
-    
-    # Custom Plotly Chart (Streamlit Line Chart for Speed)
-    st.line_chart(df[['Close', 'SMA44', 'SMA200']])
+# Sidebar Selection
+selected_stock = st.sidebar.selectbox("Select Stock for Deep-Dive Analysis", nifty200)
 
-    # --- 3. Fundamental & News ---
-    col_left, col_right = st.columns(2)
-    
-    with col_left:
-        st.subheader("📑 Business Fundamentals")
-        f_data = {
-            "Debt to Equity": info.get('debtToEquity', 'N/A'),
-            "Return on Equity (ROE)": info.get('returnOnEquity', 'N/A'),
-            "Profit Margin": info.get('profitMargins', 'N/A'),
-            "Dividend Yield": info.get('dividendYield', 'N/A')
-        }
-        st.json(f_data)
-        st.write(f"**Description:** {info.get('longBusinessSummary', 'No summary available.')[:500]}...")
+if st.sidebar.button("Nikalye Kundali"):
+    with st.spinner(f"Analyzing {selected_stock}... Thinking like an Engineer."):
+        df, info, status, score, news = get_stock_analysis(selected_stock)
+        
+        if df is not None:
+            # --- Row 1: The Verdict ---
+            st.divider()
+            col1, col2, col3 = st.columns([1, 1, 2])
+            with col1:
+                st.metric("Price", f"₹{round(df['Close'].iloc[-1], 2)}")
+            with col2:
+                st.metric("Confidence Score", f"{score}%")
+            with col3:
+                st.header(f"Verdict: {status}")
 
-    with col_right:
-        st.subheader("🗞️ Latest News & Sentiments")
-        if news:
-            for item in news[:5]:
-                st.info(f"📅 **{item['title']}**")
-                st.caption(f"Source: {item['publisher']} | [Read Full Story]({item['link']})")
+            # --- Row 2: The Chart ---
+            st.subheader("📈 Technical Chart (44/200 SMA Strategy)")
+            st.line_chart(df[['Close', 'SMA44', 'SMA200']].tail(250))
+
+            # --- Row 3: Kundali Details ---
+            c1, c2 = st.columns(2)
+            with c1:
+                st.subheader("📑 Fundamental Kundali")
+                fundamentals = {
+                    "Company": info.get('longName'),
+                    "PE Ratio": info.get('trailingPE'),
+                    "Debt/Equity": info.get('debtToEquity'),
+                    "ROE": f"{info.get('returnOnEquity', 0)*100:.2f}%",
+                    "Profit Margin": f"{info.get('profitMargins', 0)*100:.2f}%"
+                }
+                st.json(fundamentals)
+                st.write(f"**Business Summary:** {info.get('longBusinessSummary')[:600]}...")
+
+            with c2:
+                st.subheader("🗞️ Market Sentiment & News")
+                if news:
+                    for n in news[:5]:
+                        st.info(f"**{n['title']}**\n\n*Source: {n['publisher']}*")
+                else:
+                    st.warning("No recent news found for this ticker.")
         else:
-            st.warning("No recent news found for this stock.")
+            st.error(f"Error fetching data: {status}")
 
-else:
-    st.warning("Patience! Fetching data from Yahoo Finance...")
+# --- Footer Guidance ---
+st.sidebar.divider()
+st.sidebar.info("💡 **Engineer's Tip:** Target 1:2 Risk-Reward. Always keep an eye on Volume Surges near 44 SMA.")
