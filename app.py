@@ -4,167 +4,122 @@ import pandas as pd
 import pandas_ta as ta
 
 # --- UI Configuration ---
-st.set_page_config(page_title="Arth Sutra: Professional Terminal", layout="wide")
+st.set_page_config(page_title="Arth Sutra: Strategy Terminal", layout="wide")
 
-# --- Custom Professional Styling ---
+# --- Custom Styling ---
 st.markdown("""
     <style>
-    .stock-card {
-        background-color: #161b22;
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid #30363d;
-        margin-bottom: 15px;
-        transition: 0.3s;
-    }
-    .stock-card:hover { border-color: #58a6ff; transform: translateY(-5px); }
-    .conf-high { color: #3fb950; font-weight: bold; font-size: 22px; }
-    .conf-mid { color: #d29922; font-weight: bold; font-size: 22px; }
-    .conf-low { color: #f85149; font-weight: bold; font-size: 22px; }
-    .news-box {
-        background-color: #0d1117;
-        padding: 10px;
-        border-left: 4px solid #58a6ff;
-        margin-bottom: 10px;
-        border-radius: 4px;
-    }
+    .stock-card { background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d; margin-bottom: 15px; }
+    .logic-box { background-color: #0d1117; padding: 15px; border-radius: 8px; border: 1px dashed #58a6ff; margin-top: 10px; }
+    .status-green { color: #3fb950; font-weight: bold; }
+    .status-red { color: #f85149; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- Session State Persistence ---
 if 'selected_stock' not in st.session_state:
     st.session_state['selected_stock'] = None
 
 # --- Core Intelligence Engine ---
 @st.cache_data(ttl=1800)
-def get_market_intelligence(ticker_list):
+def get_detailed_analysis(ticker_list):
     results = []
-    # Bulk download with threads for efficiency
     raw_data = yf.download(ticker_list, period="2y", group_by='ticker', threads=True)
     
     for ticker in ticker_list:
         try:
             df = raw_data[ticker].copy()
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            
+            if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
             if df.empty or len(df) < 200: continue
             
-            # Technical Indicators (44/200 SMA Strategy)
+            # Technical Indicators
             df['SMA44'] = ta.sma(df['Close'], length=44)
             df['SMA200'] = ta.sma(df['Close'], length=200)
             df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
             
             curr = df.iloc[-1]
+            prev_vol = df['Volume'].tail(20).mean()
             
-            # Professional Confidence Scoring
+            # Strategy Logic Checks
+            is_above_200 = curr['Close'] > curr['SMA200']
+            near_44 = abs(curr['Close'] - curr['SMA44']) / curr['SMA44'] < 0.03
+            high_vol = curr['Volume'] > prev_vol
+            
+            # Scoring
             score = 0
-            if curr['Close'] > curr['SMA200']: score += 40
-            if abs(curr['Close'] - curr['SMA44']) / curr['SMA44'] < 0.03: score += 40
-            if curr['Volume'] > df['Volume'].tail(20).mean(): score += 20
+            reasons = []
+            if is_above_200: 
+                score += 40
+                reasons.append("✅ Long-term Trend is Bullish (Above 200 SMA)")
+            else:
+                reasons.append("❌ Bearish Trend (Below 200 SMA)")
+                
+            if near_44: 
+                score += 40
+                reasons.append("✅ Ideal Entry Zone (Near 44 SMA Support)")
+            else:
+                reasons.append("⚠️ Overextended (Far from 44 SMA)")
+                
+            if high_vol: 
+                score += 20
+                reasons.append("✅ Accumulation detected (High Volume)")
             
             results.append({
-                "Ticker": ticker,
-                "Price": round(float(curr['Close']), 2),
-                "Confidence": int(score),
-                "Stop_Loss": round(float(curr['Close'] - (1.5 * curr['ATR'])), 2),
+                "Ticker": ticker, "Price": round(float(curr['Close']), 2),
+                "Confidence": int(score), "Reasons": reasons,
+                "SL": round(float(curr['Close'] - (1.5 * curr['ATR'])), 2),
                 "Target": round(float(curr['Close'] + (3 * curr['ATR'])), 2)
             })
         except: continue
     return pd.DataFrame(results)
 
-# --- Sidebar Controls ---
-st.sidebar.title("🛡️ Engine Controls")
-sort_opt = st.sidebar.selectbox("Sort Intelligence By", ["Confidence (High to Low)", "Alphabetical"])
-min_conf = st.sidebar.slider("Minimum Confidence Threshold", 0, 100, 50)
-
 # --- Main Dashboard ---
 st.title("🛡️ Arth Sutra Wealth Engine")
-st.caption("Strategic wealth creation platform for long-term equity growth.")
+tickers = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "TATAMOTORS.NS", "SBIN.NS", "INFY.NS", "ITC.NS", "ZOMATO.NS"]
 
-# Portfolio Tickers
-tickers = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "TATAMOTORS.NS", "SBIN.NS", "INFY.NS", "ITC.NS", "ZOMATO.NS", "ADANIENT.NS", "BHARTIARTL.NS"]
-
-with st.spinner("Aggregating Multi-Source Intelligence..."):
-    intel_df = get_market_intelligence(tickers)
+with st.spinner("Analyzing Technical & Fundamental Data..."):
+    intel_df = get_detailed_analysis(tickers)
 
 if not intel_df.empty:
-    # Applying Logic Filters
-    display_df = intel_df[intel_df['Confidence'] >= min_conf]
-    if "Confidence" in sort_opt:
-        display_df = display_df.sort_values(by="Confidence", ascending=False)
-    else:
-        display_df = display_df.sort_values(by="Ticker")
-
-    # Grid Architecture
-    st.subheader(f"Active Opportunities Identified: {len(display_df)}")
-    rows = [display_df.iloc[i:i+3] for i in range(0, len(display_df), 3)]
+    # Sort by Confidence
+    intel_df = intel_df.sort_values(by="Confidence", ascending=False)
     
+    rows = [intel_df.iloc[i:i+2] for i in range(0, len(intel_df), 2)]
     for row_df in rows:
-        cols = st.columns(3)
+        cols = st.columns(2)
         for i, (idx, stock) in enumerate(row_df.iterrows()):
             with cols[i]:
-                conf_val = stock['Confidence']
-                conf_style = "conf-high" if conf_val >= 80 else "conf-mid" if conf_val >= 50 else "conf-low"
-                
                 st.markdown(f"""
                     <div class="stock-card">
-                        <h2 style="margin-bottom:0px;">{stock['Ticker']}</h2>
-                        <p class="{conf_style}">Strategy Confidence: {conf_val}%</p>
-                        <p>Market Price: <b>₹{stock['Price']}</b></p>
-                        <p style="font-size:14px;">Exit (SL): <span style="color:#f85149;">₹{stock['Stop_Loss']}</span> | Target: <span style="color:#3fb950;">₹{stock['Target']}</span></p>
+                        <h3>{stock['Ticker']} | ₹{stock['Price']}</h3>
+                        <h4 style="color:#58a6ff;">Strategy Confidence: {stock['Confidence']}%</h4>
+                        <div class="logic-box">
+                            <small><b>TECHNICAL REASONS:</b></small><br>
+                            {'<br>'.join(stock['Reasons'])}
+                        </div>
                     </div>
                 """, unsafe_allow_html=True)
-                
-                if st.button(f"View Deep Analysis: {stock['Ticker']}", key=f"btn_{stock['Ticker']}"):
+                if st.button(f"Strategic Blueprint: {stock['Ticker']}", key=f"btn_{stock['Ticker']}"):
                     st.session_state['selected_stock'] = stock['Ticker']
 
-# --- Persistent Strategic Analysis Report ---
+# --- Deep Analysis Section (Dividend & Fundamental Growth) ---
 if st.session_state['selected_stock']:
     st.divider()
     target = st.session_state['selected_stock']
+    t_obj = yf.Ticker(target)
+    info = t_obj.info
     
-    with st.spinner(f"Compiling Financial Blueprint for {target}..."):
-        t_obj = yf.Ticker(target)
-        info = t_obj.info if t_obj.info else {}
-        hist = t_obj.history(period="1y")
-        # Nayi News Fetching Logic
-        news_data = t_obj.news if t_obj.news else []
-        
-        st.subheader(f"📑 Strategic Financial Blueprint: {target}")
-        
-        col_left, col_right = st.columns([2, 1])
-        
-        with col_left:
-            st.markdown("### Technical Trend (1 Year)")
-            if not hist.empty:
-                st.line_chart(hist['Close'])
-            
-            st.markdown("### Corporate Profile")
-            st.write(info.get('longBusinessSummary', 'Business profile currently unavailable.')[:900] + "...")
-            
-        with col_right:
-            st.markdown("### Critical Financial Metrics")
-            st.write(f"**Industry:** {info.get('industry', 'N/A')}")
-            st.write(f"**Trailing P/E:** {info.get('trailingPE', 'N/A')}")
-            st.write(f"**Debt to Equity:** {info.get('debtToEquity', 'N/A')}")
-            st.write(f"**ROE:** {info.get('returnOnEquity', 'N/A')}")
-            
-            st.markdown("### Market Intelligence Feed")
-            if news_data:
-                for item in news_data[:4]:
-                    # Robust Parsing for New Yahoo API Structure
-                    # Checking multiple possible keys (content, title, headline)
-                    content = item.get('content', {})
-                    title = content.get('title') or item.get('title') or item.get('headline') or "Market Update Available"
-                    link = content.get('canonicalUrl') or item.get('link') or item.get('url') or "#"
-                    publisher = content.get('provider', {}).get('displayName') or item.get('publisher', 'Financial Source')
-                    
-                    st.markdown(f"""
-                        <div class="news-box">
-                            <small>{publisher}</small><br>
-                            <a href="{link}" target="_blank" style="text-decoration:none; color:#58a6ff;"><b>{title}</b></a>
-                        </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.write("No recent intelligence reports found.")
+    st.subheader(f"📑 Strategic Financial Blueprint: {target}")
+    
+    col1, col2, col3 = st.columns(3)
+    # Dividend & Growth Logic
+    div_yield = info.get('dividendYield', 0)
+    div_status = "✅ Regular Dividend Payer" if div_yield and div_yield > 0 else "❌ Low/No Dividend"
+    
+    col1.metric("Dividend Yield", f"{div_yield*100:.2f}%" if div_yield else "0.00%", help=div_status)
+    col2.metric("Profit Growth (YoY)", f"{info.get('earningsGrowth', 0)*100:.1f}%")
+    col3.metric("Debt to Equity", info.get('debtToEquity', 'N/A'))
+
+    st.markdown(f"### Why this stock might move?")
+    st.write(f"1. **Dividends:** {div_status}. Long term wealth creation ke liye dividends reinvest karna zaruri hai.")
+    st.write(f"2. **Growth Driver:** Iska profit growth {info.get('earningsGrowth', 0)*100:.1f}% hai, jo confidence score ko support karta hai.")
+    st.write(f"3. **Financial Risk:** Debt-to-Equity ratio {info.get('debtToEquity', 'N/A')} hai. (Ideal < 1.0).")
