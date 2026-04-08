@@ -3,84 +3,86 @@ import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 
-# --- Core Engine: The Triple-Check Logic ---
-def get_wealth_engine_analysis(symbol):
+st.set_page_config(page_title="Arth Sutra: Wealth Engine", layout="wide")
+
+def judge_stock(symbol):
     t = yf.Ticker(symbol)
     df = t.history(period="1y")
-    info = t.info
-    
     if df.empty or len(df) < 200: return None
 
-    # 1. Technical Indicators
+    # Technical Calculations
     df['SMA44'] = ta.sma(df['Close'], length=44)
     df['SMA200'] = ta.sma(df['Close'], length=200)
     df['RSI'] = ta.rsi(df['Close'], length=14)
-    df['Volume_Avg'] = ta.sma(df['Volume'], length=20)
-    df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+    avg_vol = df['Volume'].tail(20).mean()
 
     curr = df.iloc[-1]
-    prev = df.iloc[-2]
-
-    # --- ACCURACY FILTERS ---
-    # Filter A: Price must be above 200 SMA (Long term Bullish)
-    is_bullish = curr['Close'] > curr['SMA200']
     
-    # Filter B: Price near 44 SMA (The Entry Zone)
-    near_44 = abs(curr['Close'] - curr['SMA44']) / curr['SMA44'] < 0.02
+    # 1. Trend Analysis
+    is_long_term_up = curr['Close'] > curr['SMA200']
+    is_near_44 = abs(curr['Close'] - curr['SMA44']) / curr['SMA44'] < 0.02
+    volume_surge = curr['Volume'] > (avg_vol * 1.3)
     
-    # Filter C: Volume Surge (The "Truth" Filter)
-    volume_surge = curr['Volume'] > (df['Volume_Avg'].iloc[-1] * 1.5)
-    
-    # Filter D: RSI Reversal (Strength check)
-    rsi_ok = 40 < curr['RSI'] < 65
-
-    # Confidence Calculation (0 to 100)
+    # 2. Assign Condition & Confidence
     confidence = 0
-    if is_bullish: confidence += 30
-    if near_44: confidence += 25
-    if volume_surge: confidence += 25
-    if rsi_ok: confidence += 20
+    if is_long_term_up: confidence += 40
+    if is_near_44: confidence += 30
+    if volume_surge: confidence += 20
+    if 40 < curr['RSI'] < 60: confidence += 10
 
-    # Stop Loss & Target (Based on Volatility)
-    stop_loss = curr['Close'] - (2 * curr['ATR'])
-    target = curr['Close'] + (4 * curr['ATR']) # 1:2 Risk-Reward
+    if confidence >= 80:
+        status = "🚀 HIGH BULLISH"
+    elif confidence >= 50:
+        status = "⚖️ NEUTRAL / HOLD"
+    else:
+        status = "❌ AVOID / BEARISH"
 
     return {
-        "ticker": symbol,
-        "price": round(curr['Close'], 2),
-        "confidence": confidence,
-        "stop_loss": round(stop_loss, 2),
-        "target": round(target, 2),
-        "volume_status": "HIGH" if volume_surge else "NORMAL",
-        "news": t.news[:3]
+        "Ticker": symbol,
+        "Price": round(curr['Close'], 2),
+        "Confidence %": confidence,
+        "Condition": status,
+        "RSI": round(curr['RSI'], 1),
+        "Volume": "High" if volume_surge else "Normal"
     }
 
-# --- Streamlit Dashboard ---
-st.title("🛡️ Arth Sutra: Wealth Creation Engine")
-st.markdown("Helping common people build wealth through data-driven accuracy.")
+# --- Main Dashboard ---
+st.title("🛡️ Arth Sutra Wealth Engine: Nifty 200 Report")
 
-# Simplified Nifty 200 List (Aap yahan CSV load kar sakte ho)
-tickers = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "TATAMOTORS.NS", "ITC.NS", "SBIN.NS"]
+# For now, using a sample. In your real tool, load the full Nifty 200 CSV.
+tickers = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "TATAMOTORS.NS", "ITC.NS", "ADANIENT.NS", "SBIN.NS"]
 
-high_conf_picks = []
-
+all_data = []
 for s in tickers:
-    data = get_wealth_engine_analysis(s)
-    if data and data['confidence'] >= 70:
-        high_conf_picks.append(data)
+    result = judge_stock(s)
+    if result: all_data.append(result)
 
-# Display Analysis
-if high_conf_picks:
-    for pick in high_conf_picks:
-        with st.expander(f"📌 {pick['ticker']} - Confidence: {pick['confidence']}%"):
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Current Price", f"₹{pick['price']}")
-            col2.metric("Stop Loss (SL)", f"₹{pick['stop_loss']}", delta_color="inverse")
-            col3.metric("Target", f"₹{pick['target']}")
-            
-            st.write(f"**Volume Status:** {pick['volume_status']}")
-            st.subheader("Latest News Insights")
-            for n in pick['news']:
-                st.write(f"- {n['title']} ([Link]({n['link']}))")
-else:
-    st.info("No high-accuracy signals found today. Cash is also a position!")
+report_df = pd.DataFrame(all_data)
+
+# --- Filters ---
+st.sidebar.header("Filter Engine")
+filter_status = st.sidebar.multiselect("Select Conditions to Show", 
+                                       options=["🚀 HIGH BULLISH", "⚖️ NEUTRAL / HOLD", "❌ AVOID / BEARISH"],
+                                       default=["🚀 HIGH BULLISH", "⚖️ NEUTRAL / HOLD", "❌ AVOID / BEARISH"])
+
+filtered_df = report_df[report_df['Condition'].isin(filter_status)]
+
+# --- Display Logic ---
+st.subheader("Live Market Judgment")
+st.dataframe(filtered_df.sort_values(by="Confidence %", ascending=False), use_container_width=True)
+
+# Detailed Insights on Selection
+selected = st.selectbox("Deep Dive into Stock Fundamentals & News", filtered_df['Ticker'])
+if selected:
+    st.divider()
+    t_obj = yf.Ticker(selected)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"### {selected} Technical Chart")
+        st.line_chart(t_obj.history(period="6mo")['Close'])
+    with col2:
+        st.write("### Fundamental & Sentiment Analysis")
+        st.json(t_obj.info) # Detailed stats like PE, Debt, Growth
+        st.write("#### Latest News")
+        for n in t_obj.news[:3]:
+            st.write(f"- {n['title']}")
