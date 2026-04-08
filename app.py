@@ -1,62 +1,62 @@
 import streamlit as st
+import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
-# Hum multiple sources try karenge
-import yfinance as yf 
-from pygooglenews import GoogleNews
+from pygooglenews import GoogleNews # For Sentiment Source
 
-st.set_page_config(page_title="Arth Sutra: Multi-Source", layout="wide")
+# --- Caching for Stability ---
+@st.cache_data(ttl=3600)
+def get_price_data(ticker):
+    # Source A: yfinance for Technicals
+    return yf.download(ticker, period="2y", interval="1d")
 
-# --- SOURCE 1: News from Google News (Best for Sentiment) ---
-def get_market_sentiment(stock_name):
-    gn = GoogleNews(lang='en', country='IN')
-    search = gn.search(f'{stock_name} share price news')
-    news_items = []
-    for entry in search['entries'][:3]:
-        news_items.append({"title": entry.title, "link": entry.link})
-    return news_items
-
-# --- SOURCE 2: Technicals from yfinance (Stable for OHLC data) ---
-@st.cache_data(ttl=600)
-def get_technical_data(ticker):
-    # Sirf price data ke liye yf best hai
-    df = yf.download(ticker, period="2y", progress=False)
-    return df
-
-# --- SOURCE 3: Fundamentals (Specialized logic) ---
-def get_fundamental_kundali(ticker):
+@st.cache_data(ttl=3600)
+def get_fundamental_data(ticker):
+    # Source B: yfinance Info for Fundamentals
     t = yf.Ticker(ticker)
-    info = t.info # Isme financial ratios acche milte hain
-    return info
+    return t.info
 
-# --- THE AGGREGATOR (Sabko milane wala logic) ---
-st.title("🛡️ Arth Sutra: Hybrid Intelligence Engine")
+def get_sentiment_news(stock_name):
+    # Source C: Google News for Sentiments
+    gn = GoogleNews(lang='en', country='IN')
+    search = gn.search(f'{stock_name} share stock market')
+    return search['entries'][:5]
 
-ticker = st.sidebar.text_input("Stock Ticker (e.g. RELIANCE.NS)", "RELIANCE.NS")
+# --- UI Setup ---
+st.title("🛡️ Arth Sutra: Multi-Source Wealth Engine")
+
+selected_stock = st.sidebar.text_input("Enter NSE Ticker", "TATAMOTORS.NS")
 
 if st.sidebar.button("Nikalye Master Kundali"):
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        # Source 2 se Price Data
-        df = get_technical_data(ticker)
-        if not df.empty:
+    try:
+        # Technical Logic
+        df = get_price_data(selected_stock)
+        info = get_fundamental_data(selected_stock)
+        
+        st.header(f"📊 Analysis: {info.get('longName', selected_stock)}")
+        
+        # --- Multi-Source Dashboard ---
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.subheader("📈 Technical Source (44/200 SMA)")
             df['SMA44'] = ta.sma(df['Close'], length=44)
             df['SMA200'] = ta.sma(df['Close'], length=200)
-            st.subheader("📈 Chart Intelligence (Source: Market Data)")
             st.line_chart(df[['Close', 'SMA44', 'SMA200']].tail(200))
             
-    with col2:
-        # Source 3 se Fundamentals
-        st.subheader("📑 Business Health")
-        info = get_fundamental_kundali(ticker)
-        st.write(f"**Market Cap:** ₹{info.get('marketCap', 0)//10**7} Cr")
-        st.write(f"**P/E Ratio:** {info.get('trailingPE', 'N/A')}")
-        
-    st.divider()
-    
-    # Source 1 se News
-    st.subheader("🗞️ Latest Sentiment (Source: Google News)")
-    news = get_market_sentiment(info.get('longName', ticker))
-    for n in news:
-        st.info(f"🔹 {n['title']} [Read]({n['link']})")
+        with col2:
+            st.subheader("📑 Fundamental Source")
+            st.metric("PE Ratio", info.get('trailingPE', 'N/A'))
+            st.metric("Debt/Equity", info.get('debtToEquity', 'N/A'))
+            st.metric("Profit Growth", f"{info.get('earningsGrowth', 0)*100:.1f}%")
+
+        st.divider()
+
+        # --- News/Sentiment Source ---
+        st.subheader("🗞️ Sentiment Source (Google News)")
+        news_list = get_sentiment_news(info.get('longName', selected_stock))
+        for n in news_list:
+            st.info(f"**{n.title}** \n[Read More]({n.link})")
+
+    except Exception as e:
+        st.error(f"Error connecting to sources: {e}")
